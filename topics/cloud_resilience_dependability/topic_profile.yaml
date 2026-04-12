@@ -1,0 +1,256 @@
+topic_id: cloud_resilience_dependability
+display_name: Cloud Resilience and Dependability
+description: >
+  Bundled topic preset for archival and preprint discovery on cloud resilience,
+  dependability, and related modeling, simulation, chaos, and verification work.
+screening:
+  term_groups:
+    construct:
+      - resilien*
+      - dependab*
+      - fault toleran*
+      - self-heal*
+    context:
+      - cloud computing
+      - cloud infrastructure
+      - cloud environment
+      - cloud system
+      - cloud service
+      - cloud platform
+      - cloud-based software service
+      - cloud-based software services
+      - cloud-native
+      - openstack
+      - eucalyptus
+      - iaas
+      - it service
+      - it services
+      - microservice*
+      - kubernetes
+      - k8s
+      - serverless
+      - multi-cloud
+      - hybrid cloud
+      - data center
+      - container orchestration
+      - containerized service
+      - cloud-fog
+      - cloud-edge
+    model_paradigm:
+      - modeling
+      - modelling
+      - model-based
+      - simulation
+      - simulator
+      - digital twin
+      - resilience assessment
+      - profiling
+      - testing framework
+      - fault injection
+      - fault diagnosis
+      - failure prediction
+      - proactive actions
+      - chaos engineering
+      - formal verification
+      - model checking
+      - machine learning
+      - deep learning
+      - reinforcement learning
+      - AIOps
+  negative_exclusions:
+    - cloud model
+    - container transportation
+    - container terminal
+    - port-hinterland
+    - urban flood
+    - stormwater
+    - vehicle-road-cloud
+    - blockchain
+    - wind turbine
+    - internet of medical things
+    - healthcare things
+    - logistics
+classifier:
+  high_priority_cues:
+    - availability modeling
+    - dependability modeling
+    - probabilistic model checking
+    - markov
+    - queueing
+    - stochastic petri net
+    - chaos engineering
+    - fault injection
+    - testing framework
+    - resilience assessment
+    - resilience profiling
+    - failure prediction
+    - proactive actions
+    - fault diagnosis
+    - digital twin
+    - simulation
+    - simulator
+    - cloudsim
+    - failover
+    - disaster recovery
+    - rpo
+    - rto
+    - kubernetes api server
+    - scheduler
+    - etcd
+    - blast radius
+    - graceful degradation
+    - slo
+    - sla
+    - incident prediction
+    - failure management
+    - aiops
+  out_of_scope_patterns:
+    - healthcare
+    - wearable
+    - internet of things
+    - iot
+    - logistics
+    - transport
+    - remote sensing
+    - uav
+    - manufacturing
+    - smart grid
+    - blockchain
+    - passenger
+    - fare ticketing
+  metric_terms:
+    - availability
+    - reliability
+    - dependability
+    - resilience
+    - recovery
+    - risk
+    - rpo
+    - rto
+    - mttr
+    - blast radius
+    - sla
+    - slo
+    - degradation
+    - outage
+  method_terms:
+    - model
+    - simulation
+    - simulator
+    - resilience assessment
+    - profiling
+    - testing framework
+    - digital twin
+    - formal verification
+    - model checking
+    - fault injection
+    - fault diagnosis
+    - failure prediction
+    - proactive actions
+    - chaos engineering
+    - machine learning
+    - deep learning
+    - reinforcement learning
+    - markov
+    - queueing
+    - stochastic petri net
+    - estimator
+    - cloudsim
+  tertiary_terms:
+    - survey
+    - review
+    - systematic literature review
+    - mapping study
+    - multivocal literature review
+taxonomy:
+  dimensions:
+    - name: resilience_paradigm
+      default: Unknown
+      labels:
+        - value: Formal
+          any_of:
+            - formal verification
+            - model checking
+            - theorem proving
+        - value: Chaos
+          any_of:
+            - chaos engineering
+            - fault injection
+            - chaos experiment
+        - value: ML
+          any_of:
+            - machine learning
+            - deep learning
+            - aiops
+            - reinforcement learning
+        - value: Simulation
+          any_of:
+            - simulation
+            - simulator
+            - digital twin
+        - value: Analytics
+          any_of:
+            - modeling
+            - modelling
+            - model-based
+            - analytical model
+            - stochastic model
+            - reliability model
+            - dependability model
+    - name: cloud_context
+      default: Unknown
+      labels:
+        - value: K8s
+          any_of:
+            - kubernetes
+            - k8s
+        - value: Edge
+          any_of:
+            - edge computing
+            - edge cloud
+            - cloud-edge
+            - fog computing
+            - cloud-fog
+        - value: Serverless
+          any_of:
+            - serverless
+            - faas
+        - value: MultiCloud
+          any_of:
+            - multi-cloud
+            - multicloud
+        - value: HybridCloud
+          any_of:
+            - hybrid cloud
+        - value: GeneralCloud
+          any_of:
+            - cloud computing
+            - cloud infrastructure
+            - cloud environment
+            - cloud system
+            - cloud service
+            - cloud platform
+            - data center
+            - virtualized cloud
+            - iaas
+            - paas
+            - saas
+metadata:
+  primary_dimension: resilience_paradigm
+  secondary_dimension: cloud_context
+  legacy_field_map:
+    resilience_paradigm: resilience_paradigm
+    cloud_context: cloud_context
+extraction_hints:
+  managed_service_terms:
+    - aws
+    - azure
+    - gcp
+    - google cloud
+    - managed service
+  multi_region_terms:
+    - multi-region
+    - cross-region
+    - availability zone
+    - failover
+    - disaster recovery

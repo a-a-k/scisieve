@@ -1,6 +1,6 @@
 # SciCrawl
 
-Config-driven pipeline for automated SLR/MLR construction on cloud resilience and dependability. The preferred interface is the package CLI `scicrawl`; `python main.py ...` remains available as a legacy compatibility runner.
+Configurable pipeline for automated SLR/MLR construction. The core engine is topic-driven; the repository currently ships with a bundled cloud resilience/dependability preset. The preferred interface is the package CLI `scicrawl`; `python main.py ...` remains as a legacy compatibility runner for the original preset.
 
 ## Install
 ```bash
@@ -37,9 +37,15 @@ python -m scicrawl release --config scicrawl.yaml --profile debug
 
 ## Config Files
 - `scicrawl.yaml`: profile settings (`debug`, `csur`) and working directories.
-- `query_packs.yaml`: scholarly pack definitions and negative exclusions.
-- `gray_registry.yaml`: domain-scoped gray-literature families and seed URLs.
-- `reference/`: benchmark and baseline CSV files used by the packaged default config.
+- `topics/cloud_resilience_dependability/topic_profile.yaml`: bundled topic preset that defines screening terms, classifier cues, taxonomy labels, and extraction hints.
+- `query_packs.yaml`: scholarly pack definitions for the bundled preset.
+- `gray_registry.yaml`: domain-scoped gray-literature families and seed URLs for the bundled preset.
+
+## Generic Topic Configuration
+- The execution core is now topic-configurable. Screening terms, negative exclusions, heuristic classifier cues, and label taxonomies are loaded from `paths.topic_profile` in `scicrawl.yaml`.
+- A new topic can be introduced by supplying a different topic profile plus matching query packs, gray registry, and benchmark/reference files. The engine stages themselves do not need to be rewritten for that change.
+- Metadata exports now include generic label fields: `label_primary_dimension`, `label_primary_value`, `label_secondary_dimension`, and `label_secondary_value`.
+- The legacy columns `resilience_paradigm` and `cloud_context` are still emitted for backward compatibility with the bundled cloud preset.
 
 ## Output Model
 The config-driven pipeline writes working artifacts under `.scicrawl_runs/<profile>/`.
@@ -71,6 +77,9 @@ Key outputs:
 - Citation expansion uses both OpenAlex and OpenCitations, with separate round logs under `snowball_*.csv`.
 - Coverage validation runs against the post-snowball discovered set, not only the initial query-pack retrieval.
 - Negative sentinel checks are emitted as explicit reports and must stay at `0` for `scholarly_core`.
+
+## License
+This repository is released under the MIT License. See [LICENSE](LICENSE).
 
 ## Budget-Aware Resume
 - If OpenAlex returns `429 Insufficient budget`, the run now pauses cleanly instead of losing progress.

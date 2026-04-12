@@ -23,6 +23,7 @@ class PathsConfig(BaseModel):
     working_dir: str = ".scicrawl_runs"
     query_packs: str = "query_packs.yaml"
     gray_registry: str = "gray_registry.yaml"
+    topic_profile: str = "topics/cloud_resilience_dependability/topic_profile.yaml"
     anchor_benchmark: str
     baseline_metadata: str | None = None
 
@@ -101,6 +102,7 @@ class ResolvedPaths:
     figures_dir: Path
     query_packs_path: Path
     gray_registry_path: Path
+    topic_profile_path: Path
     anchor_benchmark_path: Path
     baseline_metadata_path: Path | None
 
@@ -164,6 +166,8 @@ def load_resolved_config(
         figures_dir=run_root / "release_package" / "figures",
         query_packs_path=_resolve_path(repo_root, app.paths.query_packs) or repo_root / "query_packs.yaml",
         gray_registry_path=_resolve_path(repo_root, app.paths.gray_registry) or repo_root / "gray_registry.yaml",
+        topic_profile_path=_resolve_path(repo_root, app.paths.topic_profile)
+        or repo_root / "topics" / "cloud_resilience_dependability" / "topic_profile.yaml",
         anchor_benchmark_path=_resolve_path(repo_root, app.paths.anchor_benchmark) or repo_root / "anchors.csv",
         baseline_metadata_path=_resolve_path(repo_root, app.paths.baseline_metadata),
     )

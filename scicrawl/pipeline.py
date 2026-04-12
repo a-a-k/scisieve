@@ -22,7 +22,13 @@ import yaml
 import main as legacy_main
 from api_clients import OpenAlexBudgetExceeded, OpenAlexClient, OpenCitationsClient
 from extractor import PDFSectionExtractor
-from models import CloudContext, ResearchWork, infer_cloud_context, infer_resilience_paradigm, normalize_doi
+from models import (
+    CloudContext,
+    ResearchWork,
+    ResilienceParadigm,
+    infer_topic_labels,
+    normalize_doi,
+)
 from protocol import (
     NEGATIVE_EXCLUSION_TERMS,
     TERM_GROUPS,
@@ -30,6 +36,9 @@ from protocol import (
     compile_group_regex,
     compile_negative_regex,
     evaluate_protocol,
+    flatten_term_groups,
+    negative_exclusion_terms,
+    screening_term_groups,
 )
 from snowballing import (
     backward_snowball,
@@ -127,6 +136,10 @@ METADATA_COLUMNS = [
     "primary_source_name",
     "cited_by_count",
     "best_pdf_url",
+    "label_primary_dimension",
+    "label_primary_value",
+    "label_secondary_dimension",
+    "label_secondary_value",
     "resilience_paradigm",
     "cloud_context",
     "machine_decision",
@@ -201,6 +214,10 @@ PDF_DOWNLOAD_COLUMNS = ["record_id", "best_pdf_url", "status", "pdf_local_path"]
 PARSE_LOG_COLUMNS = ["record_id", "pdf_local_path", "parse_status", "sections_detected"]
 EVIDENCE_COLUMNS = [
     "record_id",
+    "label_primary_dimension",
+    "label_primary_value",
+    "label_secondary_dimension",
+    "label_secondary_value",
     "primary_paradigm",
     "secondary_paradigms",
     "cloud_context",
@@ -466,6 +483,7 @@ class PipelineContext:
     config: ResolvedConfig
     query_pack_payload: dict[str, Any]
     gray_registry_payload: dict[str, Any]
+    topic_profile_payload: dict[str, Any]
     anchor_rows: list[dict[str, Any]]
     compiled_groups: Mapping[str, Sequence[re.Pattern[str]]]
     compiled_exclusions: Sequence[re.Pattern[str]]
@@ -506,6 +524,7 @@ def _manifest_payload(ctx: PipelineContext) -> dict[str, Any]:
     return {
         "run_id": cfg.run_id,
         "profile": cfg.profile_name,
+        "topic_id": str(ctx.topic_profile_payload.get("topic_id") or cfg.app.topic),
         "tool_version": __version__,
         "git_commit_hash": _git_hash(),
         "run_timestamp_utc": cfg.run_timestamp_utc,
@@ -513,6 +532,7 @@ def _manifest_payload(ctx: PipelineContext) -> dict[str, Any]:
         "input_snapshot_id": cfg.profile.snapshot_id,
         "config_hash": sha256_file(cfg.config_path),
         "query_packs_hash": sha256_file(cfg.paths.query_packs_path),
+        "topic_profile_hash": sha256_file(cfg.paths.topic_profile_path),
         "anchor_set_hash": sha256_file(cfg.paths.anchor_benchmark_path),
         "gray_registry_hash": sha256_file(cfg.paths.gray_registry_path),
         "python_version": sys.version.replace("\n", " "),
@@ -588,14 +608,18 @@ def _load_yaml(path: Path) -> dict[str, Any]:
 def _build_context(config: ResolvedConfig) -> PipelineContext:
     query_pack_payload = _load_yaml(config.paths.query_packs_path)
     gray_registry_payload = _load_yaml(config.paths.gray_registry_path)
+    topic_profile_payload = _load_yaml(config.paths.topic_profile_path)
     anchor_rows = read_csv(config.paths.anchor_benchmark_path)
+    term_groups = screening_term_groups(topic_profile_payload)
+    exclusions = negative_exclusion_terms(topic_profile_payload)
     return PipelineContext(
         config=config,
         query_pack_payload=query_pack_payload,
         gray_registry_payload=gray_registry_payload,
+        topic_profile_payload=topic_profile_payload,
         anchor_rows=anchor_rows,
-        compiled_groups=compile_group_regex(),
-        compiled_exclusions=compile_negative_regex(),
+        compiled_groups=compile_group_regex(term_groups),
+        compiled_exclusions=compile_negative_regex(exclusions),
     )
 
 
@@ -611,10 +635,81 @@ def _pack_definitions(ctx: PipelineContext) -> list[dict[str, Any]]:
     return [pack for pack in packs if isinstance(pack, dict) and pack.get("enabled", True)]
 
 
+def _topic_term_groups(ctx: PipelineContext) -> dict[str, list[str]]:
+    return screening_term_groups(ctx.topic_profile_payload)
+
+
 def _pack_negative_exclusions(ctx: PipelineContext) -> list[str]:
+    base_terms = negative_exclusion_terms(ctx.topic_profile_payload)
     values = ctx.query_pack_payload.get("negative_exclusions", [])
     cleaned = [str(value).strip() for value in values if str(value).strip()]
-    return cleaned or list(NEGATIVE_EXCLUSION_TERMS)
+    return unique_preserve_order([*base_terms, *cleaned]) or list(NEGATIVE_EXCLUSION_TERMS)
+
+
+def _topic_classifier_terms(ctx: PipelineContext, key: str, fallback: Sequence[str]) -> list[str]:
+    payload = ctx.topic_profile_payload.get("classifier", {})
+    values = payload.get(key, [])
+    if not isinstance(values, (list, tuple)):
+        return list(fallback)
+    cleaned = [str(value).strip() for value in values if str(value).strip()]
+    return cleaned or list(fallback)
+
+
+def _topic_taxonomy_dimensions(ctx: PipelineContext) -> list[dict[str, Any]]:
+    taxonomy = ctx.topic_profile_payload.get("taxonomy", {})
+    values = taxonomy.get("dimensions", [])
+    return [value for value in values if isinstance(value, dict)]
+
+
+def _topic_metadata_config(ctx: PipelineContext) -> dict[str, Any]:
+    payload = ctx.topic_profile_payload.get("metadata", {})
+    return payload if isinstance(payload, dict) else {}
+
+
+def _topic_label_assignments(ctx: PipelineContext, text: str) -> dict[str, str]:
+    return infer_topic_labels(text, _topic_taxonomy_dimensions(ctx))
+
+
+def _topic_label_fields(ctx: PipelineContext, labels: Mapping[str, str]) -> dict[str, str]:
+    metadata_cfg = _topic_metadata_config(ctx)
+    dimensions = _topic_taxonomy_dimensions(ctx)
+    dimension_names = [str(item.get("name") or "") for item in dimensions if str(item.get("name") or "")]
+    primary_dimension = str(metadata_cfg.get("primary_dimension") or (dimension_names[0] if dimension_names else ""))
+    secondary_dimension = str(metadata_cfg.get("secondary_dimension") or (dimension_names[1] if len(dimension_names) > 1 else ""))
+    legacy_field_map = metadata_cfg.get("legacy_field_map", {})
+    fields = {
+        "label_primary_dimension": primary_dimension,
+        "label_primary_value": labels.get(primary_dimension, "") if primary_dimension else "",
+        "label_secondary_dimension": secondary_dimension,
+        "label_secondary_value": labels.get(secondary_dimension, "") if secondary_dimension else "",
+        "resilience_paradigm": "",
+        "cloud_context": "",
+    }
+    if isinstance(legacy_field_map, dict):
+        for field_name, dimension_name in legacy_field_map.items():
+            dimension_key = str(dimension_name or "").strip()
+            fields[str(field_name)] = labels.get(dimension_key, "") if dimension_key else ""
+    return fields
+
+
+def _screening_text_from_row(row: Mapping[str, Any]) -> str:
+    return " ".join(
+        part
+        for part in (
+            str(row.get("title") or ""),
+            str(row.get("abstract_text_reconstructed") or row.get("abstract") or ""),
+        )
+        if part
+    ).strip()
+
+
+def _topic_extraction_hints(ctx: PipelineContext, key: str, fallback: Sequence[str]) -> list[str]:
+    payload = ctx.topic_profile_payload.get("extraction_hints", {})
+    values = payload.get(key, [])
+    if not isinstance(values, (list, tuple)):
+        return list(fallback)
+    cleaned = [str(value).strip() for value in values if str(value).strip()]
+    return cleaned or list(fallback)
 
 
 def _type_crossref_from_work(work: Mapping[str, Any]) -> str:
@@ -722,7 +817,7 @@ def _raw_pack_paths(ctx: PipelineContext) -> list[Path]:
 
 
 def _build_scholarly_filter(ctx: PipelineContext, types: Sequence[str], *, pack: Mapping[str, Any] | None = None) -> str:
-    filter_payload = pack.get("filters", {}) if isinstance(pack, Mapping) else {}
+    filter_payload = pack.get("filters", {}) if isinstance(pack, dict) else {}
     publication_year_from = filter_payload.get("publication_year_from")
     pack_types = filter_payload.get("types", [])
     allowed_types = [item for item in pack_types if isinstance(item, str)]
@@ -1082,8 +1177,9 @@ def stage_normalize(ctx: PipelineContext) -> None:
         if not isinstance(raw_work, dict):
             continue
         text = _basic_screening_text(raw_work)
+        topic_terms = flatten_term_groups(_topic_term_groups(ctx))
         query_terms_triggered = unique_preserve_order(
-            _term_hits(text, TERM_GROUPS["construct"] + TERM_GROUPS["context"] + TERM_GROUPS["model_paradigm"])
+            _term_hits(text, topic_terms)
         )
         primary_source_name, primary_source_type, primary_source_is_core, primary_source_is_in_doaj = _primary_source_metadata(
             raw_work
@@ -1139,7 +1235,10 @@ def _normalized_rows(ctx: PipelineContext) -> list[dict[str, Any]]:
     return read_jsonl(ctx.config.paths.normalized_dir / "normalized_candidates.jsonl")
 
 
-def _row_to_research_work(row: Mapping[str, Any], *, source: str, track: str) -> ResearchWork:
+def _row_to_research_work(ctx: PipelineContext, row: Mapping[str, Any], *, source: str, track: str) -> ResearchWork:
+    screening_text = _screening_text_from_row(row)
+    topic_labels = _topic_label_assignments(ctx, screening_text)
+    label_fields = _topic_label_fields(ctx, topic_labels)
     return ResearchWork(
         source=source,
         openalex_id=str(row.get("openalex_id") or "") or None,
@@ -1156,26 +1255,12 @@ def _row_to_research_work(row: Mapping[str, Any], *, source: str, track: str) ->
         replaced_by_doi=None,
         matched_archival_id=str(row.get("matched_archival_id") or "") or None,
         matched_archival_doi=str(row.get("matched_archival_doi") or "") or None,
-        resilience_paradigm=infer_resilience_paradigm(
-            " ".join(
-                part
-                for part in (
-                    str(row.get("title") or ""),
-                    str(row.get("abstract_text_reconstructed") or ""),
-                )
-                if part
-            )
-        ),
-        cloud_context=infer_cloud_context(
-            " ".join(
-                part
-                for part in (
-                    str(row.get("title") or ""),
-                    str(row.get("abstract_text_reconstructed") or ""),
-                )
-                if part
-            )
-        ),
+        label_primary_dimension=label_fields["label_primary_dimension"] or None,
+        label_primary_value=label_fields["label_primary_value"] or None,
+        label_secondary_dimension=label_fields["label_secondary_dimension"] or None,
+        label_secondary_value=label_fields["label_secondary_value"] or None,
+        resilience_paradigm=ResilienceParadigm(label_fields.get("resilience_paradigm") or ResilienceParadigm.UNKNOWN.value),
+        cloud_context=CloudContext(label_fields.get("cloud_context") or CloudContext.UNKNOWN.value),
         cited_by_count=int(row.get("cited_by_count") or 0) or None,
         best_pdf_url=str(row.get("best_pdf_url") or "") or None,
         abstract=str(row.get("abstract_text_reconstructed") or "") or None,
@@ -1186,17 +1271,24 @@ def _topic_classifier(ctx: PipelineContext, row: Mapping[str, Any]) -> dict[str,
     title = str(row.get("title") or "")
     abstract = str(row.get("abstract_text_reconstructed") or row.get("abstract") or "")
     text = " ".join(part for part in (title, abstract) if part).strip()
+    topic_groups = _topic_term_groups(ctx)
     matched_protocol, protocol_reason = evaluate_protocol(
         text,
         compiled_groups=ctx.compiled_groups,
         compiled_exclusions=ctx.compiled_exclusions,
     )
-    cloud_hits = _term_hits(text, TERM_GROUPS["context"])
-    method_hits = _term_hits(text, METHOD_TERMS + TERM_GROUPS["model_paradigm"])
-    metric_hits = _term_hits(text, METRIC_TERMS + TERM_GROUPS["construct"])
-    tertiary_hits = _term_hits(text, TERTIARY_TERMS)
-    high_priority_hits = _term_hits(text, HIGH_PRIORITY_CUES)
-    out_hits = _term_hits(text, OUT_OF_SCOPE_PATTERNS + _pack_negative_exclusions(ctx))
+    context_hits = _term_hits(text, topic_groups.get("context", []))
+    method_hits = _term_hits(
+        text,
+        unique_preserve_order([*_topic_classifier_terms(ctx, "method_terms", METHOD_TERMS), *topic_groups.get("model_paradigm", [])]),
+    )
+    metric_hits = _term_hits(
+        text,
+        unique_preserve_order([*_topic_classifier_terms(ctx, "metric_terms", METRIC_TERMS), *topic_groups.get("construct", [])]),
+    )
+    tertiary_hits = _term_hits(text, _topic_classifier_terms(ctx, "tertiary_terms", TERTIARY_TERMS))
+    high_priority_hits = _term_hits(text, _topic_classifier_terms(ctx, "high_priority_cues", HIGH_PRIORITY_CUES))
+    out_hits = _term_hits(text, unique_preserve_order([*_topic_classifier_terms(ctx, "out_of_scope_patterns", OUT_OF_SCOPE_PATTERNS), *_pack_negative_exclusions(ctx)]))
     negative_anchor_hits = _anchor_matches(ctx, doi=row.get("doi"), title=title, polarity="negative")
     positive_anchor_hits = _anchor_matches(ctx, doi=row.get("doi"), title=title, polarity="positive")
     positive_anchor_expected_stages = {
@@ -1222,15 +1314,15 @@ def _topic_classifier(ctx: PipelineContext, row: Mapping[str, Any]) -> dict[str,
         decision = "tertiary_background"
         confidence = 0.9 if high_priority_hits else 0.86
         reasons.append(f"tertiary={','.join(tertiary_hits[:4])}")
-    elif matched_protocol and cloud_hits and method_hits and metric_hits:
+    elif matched_protocol and context_hits and method_hits and metric_hits:
         decision = "preprint_watchlist" if is_preprint else "include"
         confidence = 0.93 if high_priority_hits else 0.86
         reasons.append("protocol_match")
-    elif matched_protocol and cloud_hits and method_hits:
+    elif matched_protocol and context_hits and method_hits:
         decision = "needs_fulltext"
         confidence = 0.64
         reasons.append("missing_metric_signal")
-    elif cloud_hits and (method_hits or metric_hits):
+    elif context_hits and (method_hits or metric_hits):
         decision = "borderline"
         confidence = 0.51
         reasons.append("partial_scope_match")
@@ -1249,12 +1341,12 @@ def _topic_classifier(ctx: PipelineContext, row: Mapping[str, Any]) -> dict[str,
             decision = "needs_fulltext"
             confidence = max(confidence, 0.7)
 
-    reasons.append(f"cloud={','.join(cloud_hits[:4]) or 'none'}")
+    reasons.append(f"context={','.join(context_hits[:4]) or 'none'}")
     reasons.append(f"method={','.join(method_hits[:4]) or 'none'}")
     reasons.append(f"metric={','.join(metric_hits[:4]) or 'none'}")
 
     reason_text = "; ".join(reasons)
-    evidence_terms = unique_preserve_order([*cloud_hits, *method_hits, *metric_hits, *high_priority_hits])
+    evidence_terms = unique_preserve_order([*context_hits, *method_hits, *metric_hits, *high_priority_hits])
     evidence = " | ".join(_candidate_spans(text, evidence_terms, limit=3))
     if evidence:
         reason_text = f"{reason_text}; evidence={evidence}"
@@ -1265,7 +1357,7 @@ def _topic_classifier(ctx: PipelineContext, row: Mapping[str, Any]) -> dict[str,
         "machine_reason": reason_text,
         "anchor_match_ids": ";".join(positive_anchor_hits),
         "negative_sentinel_match": ";".join(negative_anchor_hits),
-        "topical_score": len(cloud_hits) + len(method_hits) + len(metric_hits) + len(high_priority_hits),
+        "topical_score": len(context_hits) + len(method_hits) + len(metric_hits) + len(high_priority_hits),
     }
 
 
@@ -1441,12 +1533,12 @@ async def stage_dedup(ctx: PipelineContext) -> None:
         if str(row.get("openalex_id") or "")
     }
     core_candidates = [
-        _row_to_research_work(row, source="OpenAlex Query Packs", track="core")
+        _row_to_research_work(ctx, row, source="OpenAlex Query Packs", track="core")
         for row in normalized_rows
         if str(row.get("type") or "") in {"article", "proceedings-article"}
     ]
     preprint_candidates = [
-        _row_to_research_work(row, source="OpenAlex Query Packs", track="preprint_watchlist")
+        _row_to_research_work(ctx, row, source="OpenAlex Query Packs", track="preprint_watchlist")
         for row in normalized_rows
         if str(row.get("type") or "") == "preprint"
     ]
@@ -1671,6 +1763,10 @@ def stage_screen_ta(ctx: PipelineContext) -> None:
                     "primary_source_name": normalized_row.get("primary_source_name", ""),
                     "cited_by_count": row.get("cited_by_count", ""),
                     "best_pdf_url": row.get("best_pdf_url", ""),
+                    "label_primary_dimension": row.get("label_primary_dimension", ""),
+                    "label_primary_value": row.get("label_primary_value", ""),
+                    "label_secondary_dimension": row.get("label_secondary_dimension", ""),
+                    "label_secondary_value": row.get("label_secondary_value", ""),
                     "resilience_paradigm": row.get("resilience_paradigm", ""),
                     "cloud_context": row.get("cloud_context", ""),
                     "machine_decision": classifier.get("machine_decision", ""),
@@ -2154,6 +2250,7 @@ async def stage_snowball(ctx: PipelineContext) -> None:
                     }
                 )
                 if decision == "include":
+                    snowball_label_fields = _topic_label_fields(ctx, _topic_label_assignments(ctx, f"{row['title']} {row['abstract_text_reconstructed']}"))
                     included_rows.append(
                     {
                             "record_id": record_id,
@@ -2174,8 +2271,12 @@ async def stage_snowball(ctx: PipelineContext) -> None:
                             "primary_source_name": row["primary_source_name"],
                             "cited_by_count": row["cited_by_count"],
                             "best_pdf_url": row["best_pdf_url"],
-                            "resilience_paradigm": infer_resilience_paradigm(f"{row['title']} {row['abstract_text_reconstructed']}").value,
-                            "cloud_context": infer_cloud_context(f"{row['title']} {row['abstract_text_reconstructed']}").value,
+                            "label_primary_dimension": snowball_label_fields["label_primary_dimension"],
+                            "label_primary_value": snowball_label_fields["label_primary_value"],
+                            "label_secondary_dimension": snowball_label_fields["label_secondary_dimension"],
+                            "label_secondary_value": snowball_label_fields["label_secondary_value"],
+                            "resilience_paradigm": snowball_label_fields.get("resilience_paradigm") or ResilienceParadigm.UNKNOWN.value,
+                            "cloud_context": snowball_label_fields.get("cloud_context") or CloudContext.UNKNOWN.value,
                             "machine_decision": "include",
                             "machine_confidence": classifier["machine_confidence"],
                             "machine_reason": classifier["machine_reason"],
@@ -2392,11 +2493,12 @@ def stage_extract(ctx: PipelineContext) -> None:
         if row.get("track") != "scholarly_core":
             continue
         text = " ".join((row.get("title", ""), row.get("machine_reason", ""))).strip()
-        cloud_context = row.get("cloud_context", CloudContext.UNKNOWN.value)
+        primary_label = row.get("label_primary_value") or row.get("resilience_paradigm", "")
+        secondary_label = row.get("label_secondary_value") or row.get("cloud_context", CloudContext.UNKNOWN.value)
         paradigms = unique_preserve_order(
             value
             for value in [
-                row.get("resilience_paradigm", ""),
+                primary_label,
                 "Chaos" if "chaos engineering" in text.lower() else "",
                 "Simulation" if "simulation" in text.lower() else "",
                 "ML" if "machine learning" in text.lower() or "deep learning" in text.lower() else "",
@@ -2406,13 +2508,17 @@ def stage_extract(ctx: PipelineContext) -> None:
         extraction_rows.append(
             {
                 "record_id": row["record_id"],
-                "primary_paradigm": paradigms[0] if paradigms else row.get("resilience_paradigm", ""),
+                "label_primary_dimension": row.get("label_primary_dimension", ""),
+                "label_primary_value": primary_label,
+                "label_secondary_dimension": row.get("label_secondary_dimension", ""),
+                "label_secondary_value": secondary_label,
+                "primary_paradigm": paradigms[0] if paradigms else primary_label,
                 "secondary_paradigms": ";".join(paradigms[1:]),
-                "cloud_context": cloud_context,
-                "uses_kubernetes": str("k8s" in cloud_context.lower() or "kubernetes" in text.lower()),
-                "uses_managed_services": str(any(term in text.lower() for term in MANAGED_SERVICE_TERMS)),
-                "multi_region": str(any(term in text.lower() for term in MULTI_REGION_TERMS)),
-                "edge_cloud": str("edge" in cloud_context.lower()),
+                "cloud_context": secondary_label,
+                "uses_kubernetes": str("k8s" in secondary_label.lower() or "kubernetes" in text.lower()),
+                "uses_managed_services": str(any(term in text.lower() for term in _topic_extraction_hints(ctx, "managed_service_terms", MANAGED_SERVICE_TERMS))),
+                "multi_region": str(any(term in text.lower() for term in _topic_extraction_hints(ctx, "multi_region_terms", MULTI_REGION_TERMS))),
+                "edge_cloud": str("edge" in secondary_label.lower()),
                 "system_model_summary": _extract_summary(text, ["architecture", "microservice", "kubernetes", "system model"]),
                 "disturbance_model_summary": _extract_summary(text, ["fault injection", "chaos engineering", "failure", "disturbance"]),
                 "estimator_summary": _extract_summary(text, ["model checking", "simulation", "machine learning", "markov"]),
@@ -2890,7 +2996,11 @@ def _counts_for_manuscript(ctx: PipelineContext) -> dict[str, Any]:
     extraction_rows = read_csv(ctx.config.paths.run_root / "evidence_extraction.csv")
     gray_rows = read_csv(ctx.config.paths.run_root / "gray_candidates.csv")
 
-    paradigm_counts = Counter(row.get("resilience_paradigm", "") for row in metadata_rows if row.get("track") == "scholarly_core")
+    paradigm_counts = Counter(
+        (row.get("label_primary_value") or row.get("resilience_paradigm", ""))
+        for row in metadata_rows
+        if row.get("track") == "scholarly_core"
+    )
     validation_counts = Counter()
     metric_counts = Counter()
     for row in extraction_rows:

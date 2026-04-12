@@ -96,6 +96,41 @@ CANONICAL_SEARCH_STRING = (
 )
 
 
+def screening_term_groups(topic_profile: Mapping[str, Any] | None = None) -> dict[str, list[str]]:
+    if topic_profile is None:
+        return {group_name: list(terms) for group_name, terms in TERM_GROUPS.items()}
+    screening_payload = topic_profile.get("screening", {})
+    raw_groups = screening_payload.get("term_groups", {})
+    if not isinstance(raw_groups, dict):
+        return {group_name: list(terms) for group_name, terms in TERM_GROUPS.items()}
+    groups: dict[str, list[str]] = {}
+    for group_name, values in raw_groups.items():
+        if not isinstance(values, (list, tuple)):
+            continue
+        cleaned = [str(value).strip() for value in values if str(value).strip()]
+        if cleaned:
+            groups[str(group_name)] = cleaned
+    return groups or {group_name: list(terms) for group_name, terms in TERM_GROUPS.items()}
+
+
+def negative_exclusion_terms(topic_profile: Mapping[str, Any] | None = None) -> list[str]:
+    if topic_profile is None:
+        return list(NEGATIVE_EXCLUSION_TERMS)
+    screening_payload = topic_profile.get("screening", {})
+    values = screening_payload.get("negative_exclusions", [])
+    if not isinstance(values, (list, tuple)):
+        return list(NEGATIVE_EXCLUSION_TERMS)
+    cleaned = [str(value).strip() for value in values if str(value).strip()]
+    return cleaned or list(NEGATIVE_EXCLUSION_TERMS)
+
+
+def flatten_term_groups(term_groups: Mapping[str, Sequence[str]]) -> list[str]:
+    flattened: list[str] = []
+    for values in term_groups.values():
+        flattened.extend(str(value).strip() for value in values if str(value).strip())
+    return flattened
+
+
 def _normalize_for_match(text: str) -> str:
     lowered = text.lower()
     lowered = lowered.replace("ai ops", "aiops")

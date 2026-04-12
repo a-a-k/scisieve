@@ -47,6 +47,7 @@ class VNextConfigTests(unittest.TestCase):
             )
             self.assertEqual(resolved.paths.run_root, Path(tmp).resolve())
             self.assertTrue(resolved.resolved_end_date)
+            self.assertTrue(resolved.paths.topic_profile_path.exists())
 
     def test_build_scholarly_filter_respects_pack_filters(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -327,6 +328,7 @@ class VNextStageTests(unittest.TestCase):
             self.assertIn("scholarly_core", metadata)
             self.assertIn("scholarly_tertiary", metadata)
             self.assertIn("preprint_watchlist", metadata)
+            self.assertIn("label_primary_dimension", metadata.splitlines()[0])
 
     def test_release_blocks_on_coverage_failures_for_csur(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -357,6 +359,10 @@ class VNextStageTests(unittest.TestCase):
             config_text = config_text.replace(
                 "reference/baseline_metadata.csv",
                 str((REPO_ROOT / "reference" / "baseline_metadata.csv").resolve()).replace("\\", "/"),
+            )
+            config_text = config_text.replace(
+                "topics/cloud_resilience_dependability/topic_profile.yaml",
+                str((REPO_ROOT / "topics" / "cloud_resilience_dependability" / "topic_profile.yaml").resolve()).replace("\\", "/"),
             )
             config_path.write_text(config_text, encoding="utf-8")
             resolved = load_resolved_config(

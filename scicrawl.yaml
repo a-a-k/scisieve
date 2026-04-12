@@ -1,8 +1,8 @@
 version: 1
 topic: cloud_resilience_dependability
 description: >
-  CSUR-grade automated SLR/MLR pipeline for model-based resilience and
-  dependability estimation in cloud-first distributed systems.
+  Configurable pipeline for automated SLR/MLR construction. This default
+  configuration ships with the cloud resilience and dependability topic preset.
 contact_email: review@example.org
 project:
   release_title: SciCrawl Replication Package
@@ -14,6 +14,7 @@ paths:
   working_dir: .scicrawl_runs
   query_packs: query_packs.yaml
   gray_registry: gray_registry.yaml
+  topic_profile: topics/cloud_resilience_dependability/topic_profile.yaml
   anchor_benchmark: reference/scicrawl_anchor_benchmark_v1.csv
   baseline_metadata: reference/baseline_metadata.csv
 profiles:
