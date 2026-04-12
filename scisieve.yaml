@@ -5,17 +5,17 @@ description: >
   configuration ships with the cloud resilience and dependability topic preset.
 contact_email: review@example.org
 project:
-  release_title: SciCrawl Replication Package
+  release_title: SciSieve Replication Package
   citation_authors:
-    - name: SciCrawl Team
+    - name: SciSieve Team
       orcid: ""
   license_spdx: MIT
 paths:
-  working_dir: .scicrawl_runs
+  working_dir: .scisieve_runs
   query_packs: topics/cloud_resilience_dependability/query_packs.yaml
   gray_registry: topics/cloud_resilience_dependability/gray_registry.yaml
   topic_profile: topics/cloud_resilience_dependability/topic_profile.yaml
-  anchor_benchmark: reference/scicrawl_anchor_benchmark_v1.csv
+  anchor_benchmark: reference/scisieve_anchor_benchmark_v1.csv
   baseline_metadata: reference/baseline_metadata.csv
 profiles:
   debug:
@@ -80,3 +80,4 @@ profiles:
       double_screen_fraction: 0.2
       double_screen_seed: 42
       false_negative_audit_size: 40
+

@@ -4,11 +4,21 @@ output/
 smoke_output/
 smoke_output2/
 .scicrawl_runs/
+.scisieve_runs/
 output_full_run/
 output_precision_smoke/
 output_review_smoke/
 output_test_run/
+
+# Internal packaging / agent artifacts
 scicrawl_codex_package.zip
+scicrawl_codex_package/
 scicrawl_codex_package/baseline_outputs/
 scicrawl_codex_package/baseline_audits/
 scicrawl_codex_package/optional_reference/
+
+# Temporary public export workdirs
+SciCrawl_public/
+SciCrawl_public_stage/
+SciSieve_public/
+SciSieve_public_stage/

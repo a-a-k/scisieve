@@ -7,10 +7,10 @@ from .pipeline import create_context, execute
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="scicrawl", description="CSUR-grade automated SLR/MLR pipeline.")
+    parser = argparse.ArgumentParser(prog="scisieve", description="CSUR-grade automated SLR/MLR pipeline.")
     common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--config", default="scicrawl.yaml", help="Path to scicrawl YAML config.")
-    common.add_argument("--profile", default="debug", help="Profile name from scicrawl.yaml.")
+    common.add_argument("--config", default="scisieve.yaml", help="Path to scisieve YAML config.")
+    common.add_argument("--profile", default="debug", help="Profile name from scisieve.yaml.")
     common.add_argument("--email", default="", help="Optional override for contact email.")
     common.add_argument("--run-root", default="", help="Optional override for the working run directory.")
 
@@ -50,3 +50,4 @@ def main() -> None:
     )
     ctx = create_context(resolved)
     execute(args.command, ctx, target=getattr(args, "target", ""))
+

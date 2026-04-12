@@ -11,9 +11,9 @@ from unittest.mock import AsyncMock, patch
 import httpx
 
 from api_clients import OpenAlexBudgetExceeded, OpenAlexClient, OpenCitationsClient
-from scicrawl.cli import build_parser
-from scicrawl.config import load_resolved_config
-from scicrawl.pipeline import (
+from scisieve.cli import build_parser
+from scisieve.config import load_resolved_config
+from scisieve.pipeline import (
     METADATA_COLUMNS,
     SCREENING_TA_COLUMNS,
     _assert_profile_guards,
@@ -34,14 +34,14 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 class VNextConfigTests(unittest.TestCase):
     def test_cli_accepts_profile_after_subcommand(self) -> None:
         parser = build_parser()
-        args = parser.parse_args(["run", "--profile", "debug", "--config", "scicrawl.yaml"])
+        args = parser.parse_args(["run", "--profile", "debug", "--config", "scisieve.yaml"])
         self.assertEqual(args.command, "run")
         self.assertEqual(args.profile, "debug")
 
     def test_load_resolved_config_uses_override_run_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             resolved = load_resolved_config(
-                config_path=str(REPO_ROOT / "scicrawl.yaml"),
+                config_path=str(REPO_ROOT / "scisieve.yaml"),
                 profile_name="debug",
                 run_root_override=tmp,
             )
@@ -52,7 +52,7 @@ class VNextConfigTests(unittest.TestCase):
     def test_build_scholarly_filter_respects_pack_filters(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             resolved = load_resolved_config(
-                config_path=str(REPO_ROOT / "scicrawl.yaml"),
+                config_path=str(REPO_ROOT / "scisieve.yaml"),
                 profile_name="debug",
                 run_root_override=tmp,
             )
@@ -109,7 +109,7 @@ class VNextClassifierTests(unittest.TestCase):
     def _context(self):
         with tempfile.TemporaryDirectory() as tmp:
             resolved = load_resolved_config(
-                config_path=str(REPO_ROOT / "scicrawl.yaml"),
+                config_path=str(REPO_ROOT / "scisieve.yaml"),
                 profile_name="debug",
                 run_root_override=tmp,
             )
@@ -118,7 +118,7 @@ class VNextClassifierTests(unittest.TestCase):
     def test_topic_classifier_includes_archival_modeling_paper(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             resolved = load_resolved_config(
-                config_path=str(REPO_ROOT / "scicrawl.yaml"),
+                config_path=str(REPO_ROOT / "scisieve.yaml"),
                 profile_name="debug",
                 run_root_override=tmp,
             )
@@ -135,7 +135,7 @@ class VNextClassifierTests(unittest.TestCase):
     def test_topic_classifier_routes_survey_to_tertiary(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             resolved = load_resolved_config(
-                config_path=str(REPO_ROOT / "scicrawl.yaml"),
+                config_path=str(REPO_ROOT / "scisieve.yaml"),
                 profile_name="debug",
                 run_root_override=tmp,
             )
@@ -152,7 +152,7 @@ class VNextClassifierTests(unittest.TestCase):
     def test_topic_classifier_routes_discovery_only_anchor_to_tertiary(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             resolved = load_resolved_config(
-                config_path=str(REPO_ROOT / "scicrawl.yaml"),
+                config_path=str(REPO_ROOT / "scisieve.yaml"),
                 profile_name="debug",
                 run_root_override=tmp,
             )
@@ -169,7 +169,7 @@ class VNextClassifierTests(unittest.TestCase):
     def test_topic_classifier_includes_openstack_availability_modeling(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             resolved = load_resolved_config(
-                config_path=str(REPO_ROOT / "scicrawl.yaml"),
+                config_path=str(REPO_ROOT / "scisieve.yaml"),
                 profile_name="debug",
                 run_root_override=tmp,
             )
@@ -188,7 +188,7 @@ class VNextStageTests(unittest.TestCase):
     def test_stage_screen_ta_writes_expected_tracks(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             resolved = load_resolved_config(
-                config_path=str(REPO_ROOT / "scicrawl.yaml"),
+                config_path=str(REPO_ROOT / "scisieve.yaml"),
                 profile_name="debug",
                 run_root_override=tmp,
             )
@@ -333,7 +333,7 @@ class VNextStageTests(unittest.TestCase):
     def test_release_blocks_on_coverage_failures_for_csur(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             resolved = load_resolved_config(
-                config_path=str(REPO_ROOT / "scicrawl.yaml"),
+                config_path=str(REPO_ROOT / "scisieve.yaml"),
                 profile_name="csur",
                 run_root_override=tmp,
             )
@@ -357,8 +357,8 @@ class VNextStageTests(unittest.TestCase):
                 (REPO_ROOT / "topics" / "cloud_resilience_dependability" / "gray_registry.yaml").read_text(encoding="utf-8"),
                 encoding="utf-8",
             )
-            config_path = Path(tmp) / "scicrawl.yaml"
-            config_text = (REPO_ROOT / "scicrawl.yaml").read_text(encoding="utf-8")
+            config_path = Path(tmp) / "scisieve.yaml"
+            config_text = (REPO_ROOT / "scisieve.yaml").read_text(encoding="utf-8")
             config_text = config_text.replace("max_records_per_pack:\n", "max_records_per_pack: 10\n", 1)
             config_text = config_text.replace(
                 "topics/cloud_resilience_dependability/query_packs.yaml",
@@ -369,8 +369,8 @@ class VNextStageTests(unittest.TestCase):
                 str((topic_dir / "gray_registry.yaml").resolve()).replace("\\", "/"),
             )
             config_text = config_text.replace(
-                "reference/scicrawl_anchor_benchmark_v1.csv",
-                str((REPO_ROOT / "reference" / "scicrawl_anchor_benchmark_v1.csv").resolve()).replace("\\", "/"),
+                "reference/scisieve_anchor_benchmark_v1.csv",
+                str((REPO_ROOT / "reference" / "scisieve_anchor_benchmark_v1.csv").resolve()).replace("\\", "/"),
             )
             config_text = config_text.replace(
                 "reference/baseline_metadata.csv",
@@ -393,7 +393,7 @@ class VNextStageTests(unittest.TestCase):
     def test_anchor_check_counts_snowball_retrieval(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             resolved = load_resolved_config(
-                config_path=str(REPO_ROOT / "scicrawl.yaml"),
+                config_path=str(REPO_ROOT / "scisieve.yaml"),
                 profile_name="debug",
                 run_root_override=tmp,
             )
@@ -459,7 +459,7 @@ class VNextStageTests(unittest.TestCase):
     def test_run_pipeline_resumes_from_paused_stage(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             resolved = load_resolved_config(
-                config_path=str(REPO_ROOT / "scicrawl.yaml"),
+                config_path=str(REPO_ROOT / "scisieve.yaml"),
                 profile_name="debug",
                 run_root_override=tmp,
             )
@@ -480,7 +480,7 @@ class VNextStageTests(unittest.TestCase):
             async def _fake_run_stage(_ctx, stage_name: str) -> None:
                 recorded.append(stage_name)
 
-            with patch("scicrawl.pipeline._run_named_stage", side_effect=_fake_run_stage):
+            with patch("scisieve.pipeline._run_named_stage", side_effect=_fake_run_stage):
                 asyncio.run(run_pipeline(ctx))
             self.assertEqual(
                 recorded,
@@ -490,3 +490,4 @@ class VNextStageTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

@@ -46,7 +46,7 @@ class BaseApiClient:
             timeout=timeout_seconds,
             follow_redirects=True,
             headers={
-                "User-Agent": f"SciCrawl-MLR/1.1.0 (mailto:{email})",
+                "User-Agent": f"SciSieve-MLR/1.1.0 (mailto:{email})",
                 "Accept": "application/json",
             },
         )
@@ -316,3 +316,4 @@ class OpenCitationsClient(BaseApiClient):
 
     async def fetch_citations(self, doi: str) -> list[dict[str, Any]]:
         return await self._fetch_doi_relations("citations", doi)
+

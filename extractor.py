@@ -128,7 +128,7 @@ class PDFSectionExtractor:
             timeout=timeout_seconds,
             follow_redirects=True,
             headers={
-                "User-Agent": f"SciCrawl-MLR/1.0 (mailto:{email})",
+                "User-Agent": f"SciSieve-MLR/1.0 (mailto:{email})",
                 "Accept": "application/pdf,*/*",
             },
         )
@@ -224,4 +224,5 @@ class PDFSectionExtractor:
                 return await self.process_work(work, output_dir)
 
         return await asyncio.gather(*(one(work) for work in works))
+
 

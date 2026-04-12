@@ -1,13 +1,13 @@
-# SciCrawl
+# SciSieve
 
-Configurable pipeline for automated SLR/MLR construction. The core engine is topic-driven; the repository currently ships with a bundled cloud resilience/dependability preset. The preferred interface is the package CLI `scicrawl`; `python main.py ...` remains as a legacy compatibility runner for the original preset.
+Configurable pipeline for automated SLR/MLR construction. The core engine is topic-driven; the repository currently ships with a bundled cloud resilience/dependability preset. The preferred interface is the package CLI `scisieve`; `python main.py ...` remains as a legacy compatibility runner for the original preset.
 
 ## Install
 ```bash
 python -m pip install -r requirements.txt
 ```
 
-Optional editable install for the `scicrawl` command:
+Optional editable install for the `scisieve` command:
 ```bash
 python -m pip install -e .
 ```
@@ -15,40 +15,40 @@ python -m pip install -e .
 ## Main CLI
 Dry/debug run:
 ```bash
-python -m scicrawl run --config scicrawl.yaml --profile debug
+python -m scisieve run --config scisieve.yaml --profile debug
 ```
 
 Stage-by-stage execution:
 ```bash
-python -m scicrawl freeze scholarly --config scicrawl.yaml --profile debug
-python -m scicrawl retrieve scholarly --config scicrawl.yaml --profile debug
-python -m scicrawl normalize --config scicrawl.yaml --profile debug
-python -m scicrawl dedup --config scicrawl.yaml --profile debug
-python -m scicrawl screen-ta --config scicrawl.yaml --profile debug
-python -m scicrawl snowball --config scicrawl.yaml --profile debug
-python -m scicrawl fulltext --config scicrawl.yaml --profile debug
-python -m scicrawl extract --config scicrawl.yaml --profile debug
-python -m scicrawl quality --config scicrawl.yaml --profile debug
-python -m scicrawl gray --config scicrawl.yaml --profile debug
-python -m scicrawl anchor-check --config scicrawl.yaml --profile debug
-python -m scicrawl audit --config scicrawl.yaml --profile debug
-python -m scicrawl release --config scicrawl.yaml --profile debug
+python -m scisieve freeze scholarly --config scisieve.yaml --profile debug
+python -m scisieve retrieve scholarly --config scisieve.yaml --profile debug
+python -m scisieve normalize --config scisieve.yaml --profile debug
+python -m scisieve dedup --config scisieve.yaml --profile debug
+python -m scisieve screen-ta --config scisieve.yaml --profile debug
+python -m scisieve snowball --config scisieve.yaml --profile debug
+python -m scisieve fulltext --config scisieve.yaml --profile debug
+python -m scisieve extract --config scisieve.yaml --profile debug
+python -m scisieve quality --config scisieve.yaml --profile debug
+python -m scisieve gray --config scisieve.yaml --profile debug
+python -m scisieve anchor-check --config scisieve.yaml --profile debug
+python -m scisieve audit --config scisieve.yaml --profile debug
+python -m scisieve release --config scisieve.yaml --profile debug
 ```
 
 ## Config Files
-- `scicrawl.yaml`: profile settings (`debug`, `csur`) and working directories.
+- `scisieve.yaml`: profile settings (`debug`, `csur`) and working directories.
 - `topics/cloud_resilience_dependability/topic_profile.yaml`: bundled topic preset that defines screening terms, classifier cues, taxonomy labels, and extraction hints.
 - `topics/cloud_resilience_dependability/query_packs.yaml`: scholarly pack definitions for the bundled preset.
 - `topics/cloud_resilience_dependability/gray_registry.yaml`: domain-scoped gray-literature families and seed URLs for the bundled preset.
 
 ## Generic Topic Configuration
-- The execution core is now topic-configurable. Screening terms, negative exclusions, heuristic classifier cues, and label taxonomies are loaded from `paths.topic_profile` in `scicrawl.yaml`.
+- The execution core is now topic-configurable. Screening terms, negative exclusions, heuristic classifier cues, and label taxonomies are loaded from `paths.topic_profile` in `scisieve.yaml`.
 - A new topic can be introduced by supplying a different topic profile plus matching query packs, gray registry, and benchmark/reference files. The engine stages themselves do not need to be rewritten for that change.
 - Metadata exports now include generic label fields: `label_primary_dimension`, `label_primary_value`, `label_secondary_dimension`, and `label_secondary_value`.
 - The legacy columns `resilience_paradigm` and `cloud_context` are still emitted for backward compatibility with the bundled cloud preset.
 
 ## Output Model
-The config-driven pipeline writes working artifacts under `.scicrawl_runs/<profile>/`.
+The config-driven pipeline writes working artifacts under `.scisieve_runs/<profile>/`.
 
 Key outputs:
 - `run_manifest.json`
@@ -87,9 +87,9 @@ This repository is released under the MIT License. See [LICENSE](LICENSE).
 - `run` writes `resume_state.json`; rerunning the same command with the same `--run-root` continues from the paused stage on the next day.
 - Typical resume flow:
 ```bash
-python -m scicrawl run --config scicrawl.yaml --profile debug --run-root .scicrawl_runs\debug_resume
+python -m scisieve run --config scisieve.yaml --profile debug --run-root .scisieve_runs\debug_resume
 # if budget is exhausted, rerun the same command after the next UTC reset
-python -m scicrawl run --config scicrawl.yaml --profile debug --run-root .scicrawl_runs\debug_resume
+python -m scisieve run --config scisieve.yaml --profile debug --run-root .scisieve_runs\debug_resume
 ```
 
 ## Legacy Runner
@@ -102,3 +102,4 @@ python main.py --email your.email@example.org --output-dir output --max-formal-r
 ```bash
 python -m unittest discover -s tests -v
 ```
+

@@ -14,13 +14,13 @@ class CitationAuthor(BaseModel):
 
 
 class ProjectConfig(BaseModel):
-    release_title: str = "SciCrawl Replication Package"
+    release_title: str = "SciSieve Replication Package"
     citation_authors: list[CitationAuthor] = Field(default_factory=list)
     license_spdx: str = "MIT"
 
 
 class PathsConfig(BaseModel):
-    working_dir: str = ".scicrawl_runs"
+    working_dir: str = ".scisieve_runs"
     query_packs: str = "topics/cloud_resilience_dependability/query_packs.yaml"
     gray_registry: str = "topics/cloud_resilience_dependability/gray_registry.yaml"
     topic_profile: str = "topics/cloud_resilience_dependability/topic_profile.yaml"
@@ -185,3 +185,4 @@ def load_resolved_config(
         run_timestamp_utc=run_timestamp_utc,
         run_id=run_id,
     )
+

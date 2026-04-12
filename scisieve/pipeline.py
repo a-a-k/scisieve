@@ -1099,7 +1099,7 @@ async def stage_freeze_scholarly(ctx: PipelineContext) -> None:
 def stage_retrieve_scholarly(ctx: PipelineContext) -> None:
     raw_entries = _load_raw_entries(ctx)
     if not raw_entries:
-        raise RuntimeError("Raw scholarly freeze is missing. Run `scicrawl freeze scholarly` first.")
+        raise RuntimeError("Raw scholarly freeze is missing. Run `scisieve freeze scholarly` first.")
 
     grouped: dict[str, dict[str, Any]] = {}
     for entry in raw_entries:
@@ -1169,7 +1169,7 @@ def stage_retrieve_scholarly(ctx: PipelineContext) -> None:
 def stage_normalize(ctx: PipelineContext) -> None:
     union_rows = read_jsonl(ctx.config.paths.normalized_dir / "retrieved_union.jsonl")
     if not union_rows:
-        raise RuntimeError("Retrieved union is missing. Run `scicrawl retrieve scholarly` first.")
+        raise RuntimeError("Retrieved union is missing. Run `scisieve retrieve scholarly` first.")
 
     normalized_rows: list[dict[str, Any]] = []
     for item in union_rows:
@@ -1525,7 +1525,7 @@ def _screening_fulltext_defaults(row: Mapping[str, Any]) -> dict[str, Any]:
 async def stage_dedup(ctx: PipelineContext) -> None:
     normalized_rows = _normalized_rows(ctx)
     if not normalized_rows:
-        raise RuntimeError("Normalized candidates are missing. Run `scicrawl normalize` first.")
+        raise RuntimeError("Normalized candidates are missing. Run `scisieve normalize` first.")
 
     row_by_openalex_id: dict[str, dict[str, Any]] = {
         str(row.get("openalex_id") or ""): dict(row)
@@ -1686,7 +1686,7 @@ async def stage_dedup(ctx: PipelineContext) -> None:
 def _dedup_state(ctx: PipelineContext) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     payload_path = ctx.config.paths.normalized_dir / "deduped_candidates.json"
     if not payload_path.exists():
-        raise RuntimeError("Dedup stage output is missing. Run `scicrawl dedup` first.")
+        raise RuntimeError("Dedup stage output is missing. Run `scisieve dedup` first.")
     payload = json.loads(payload_path.read_text(encoding="utf-8"))
     core = payload.get("core", [])
     watchlist = payload.get("watchlist", [])
@@ -1954,7 +1954,7 @@ async def stage_snowball(ctx: PipelineContext) -> None:
 
     metadata_rows = read_csv(ctx.config.paths.run_root / "metadata.csv")
     if not metadata_rows:
-        raise RuntimeError("Metadata is missing. Run `scicrawl screen-ta` first.")
+        raise RuntimeError("Metadata is missing. Run `scisieve screen-ta` first.")
     screening_rows_existing = read_csv(ctx.config.paths.run_root / "screening_title_abstract.csv")
     screening_ft_rows_existing = read_csv(ctx.config.paths.run_root / "screening_fulltext.csv")
 
@@ -2629,7 +2629,7 @@ async def stage_gray(ctx: PipelineContext) -> None:
     review_rows: list[dict[str, Any]] = []
     registry_rows: list[dict[str, Any]] = []
     count_rows: list[dict[str, Any]] = []
-    async with httpx.AsyncClient(headers={"User-Agent": f"SciCrawl/{__version__}"}) as client:
+    async with httpx.AsyncClient(headers={"User-Agent": f"SciSieve/{__version__}"}) as client:
         for family in families:
             if not isinstance(family, dict):
                 continue
@@ -3100,7 +3100,7 @@ def stage_release(ctx: PipelineContext) -> None:
     )
     write_markdown(
         release_dir / "LICENSE",
-        "MIT License\n\nCopyright (c) SciCrawl Team\n\nPermission is hereby granted, free of charge, "
+        "MIT License\n\nCopyright (c) SciSieve Team\n\nPermission is hereby granted, free of charge, "
         "to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction...\n",
     )
     authors = ctx.config.app.project.citation_authors or []
@@ -3111,24 +3111,24 @@ def stage_release(ctx: PipelineContext) -> None:
             if author.orcid:
                 citation_lines.append(f"    orcid: {author.orcid}")
     else:
-        citation_lines.append("  - name: SciCrawl Team")
+        citation_lines.append("  - name: SciSieve Team")
     citation_lines.append(f"version: {__version__}")
     write_markdown(release_dir / "CITATION.cff", "\n".join(citation_lines))
     write_markdown(
         release_dir / "Dockerfile",
-        "FROM python:3.11-slim\nWORKDIR /app\nCOPY . /app\nRUN pip install -r requirements.lock\nCMD [\"python\", \"-m\", \"scicrawl\", \"run\", \"--config\", \"scicrawl.yaml\", \"--profile\", \"debug\"]\n",
+        "FROM python:3.11-slim\nWORKDIR /app\nCOPY . /app\nRUN pip install -r requirements.lock\nCMD [\"python\", \"-m\", \"scisieve\", \"run\", \"--config\", \"scisieve.yaml\", \"--profile\", \"debug\"]\n",
     )
     write_markdown(
         release_dir / "Makefile",
-        "install:\n\tpython -m pip install -r requirements.lock\n\nrun-debug:\n\tpython -m scicrawl run --config scicrawl.yaml --profile debug\n",
+        "install:\n\tpython -m pip install -r requirements.lock\n\nrun-debug:\n\tpython -m scisieve run --config scisieve.yaml --profile debug\n",
     )
     write_markdown(
         release_dir / "reproduce.sh",
-        "#!/usr/bin/env bash\nset -euo pipefail\npython -m pip install -r requirements.lock\npython -m scicrawl run --config scicrawl.yaml --profile debug\n",
+        "#!/usr/bin/env bash\nset -euo pipefail\npython -m pip install -r requirements.lock\npython -m scisieve run --config scisieve.yaml --profile debug\n",
     )
     shutil.copy2(ctx.config.paths.query_packs_path, release_dir / "query_packs.yaml")
     shutil.copy2(ctx.config.paths.gray_registry_path, release_dir / "gray_registry.yaml")
-    shutil.copy2(ctx.config.config_path, release_dir / "scicrawl.yaml")
+    shutil.copy2(ctx.config.config_path, release_dir / "scisieve.yaml")
     shutil.copy2(ctx.config.repo_root / "requirements.txt", release_dir / "requirements.lock")
 
     required_files = [
@@ -3320,3 +3320,4 @@ def execute(command: str, ctx: PipelineContext, *, target: str = "") -> None:
         stage_audit(ctx)
         return
     raise RuntimeError(f"Unsupported command: {command}")
+
