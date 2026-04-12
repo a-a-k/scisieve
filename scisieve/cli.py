@@ -7,7 +7,7 @@ from .pipeline import create_context, execute
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="scisieve", description="CSUR-grade automated SLR/MLR pipeline.")
+    parser = argparse.ArgumentParser(prog="scisieve", description="Configurable automated SLR/MLR pipeline.")
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--config", default="scisieve.yaml", help="Path to scisieve YAML config.")
     common.add_argument("--profile", default="debug", help="Profile name from scisieve.yaml.")

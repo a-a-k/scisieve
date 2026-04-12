@@ -37,10 +37,11 @@ python -m scisieve release --config scisieve.yaml --profile debug
 ```
 
 ## Config Files
-- `scisieve.yaml`: profile settings (`debug`, `csur`) and working directories.
+- `scisieve.yaml`: profile settings (`debug`, `production`) and working directories.
 - `topics/cloud_resilience_dependability/topic_profile.yaml`: bundled topic preset that defines screening terms, classifier cues, taxonomy labels, and extraction hints.
 - `topics/cloud_resilience_dependability/query_packs.yaml`: scholarly pack definitions for the bundled preset.
 - `topics/cloud_resilience_dependability/gray_registry.yaml`: domain-scoped gray-literature families and seed URLs for the bundled preset.
+- Legacy compatibility note: the old profile name `csur` is still accepted as an alias for `production`.
 
 ## Generic Topic Configuration
 - The execution core is now topic-configurable. Screening terms, negative exclusions, heuristic classifier cues, and label taxonomies are loaded from `paths.topic_profile` in `scisieve.yaml`.

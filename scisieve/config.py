@@ -8,6 +8,11 @@ import yaml
 from pydantic import BaseModel, Field
 
 
+PROFILE_ALIASES = {
+    "csur": "production",
+}
+
+
 class CitationAuthor(BaseModel):
     name: str
     orcid: str = ""
@@ -141,6 +146,7 @@ def load_resolved_config(
     repo_root = config_file.parent
     payload = yaml.safe_load(config_file.read_text(encoding="utf-8"))
     app = AppConfig.model_validate(payload)
+    profile_name = PROFILE_ALIASES.get(profile_name, profile_name)
     if profile_name not in app.profiles:
         known = ", ".join(sorted(app.profiles))
         raise ValueError(f"Unknown profile '{profile_name}'. Known profiles: {known}")

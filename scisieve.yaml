@@ -49,7 +49,7 @@ profiles:
       double_screen_fraction: 0.2
       double_screen_seed: 42
       false_negative_audit_size: 20
-  csur:
+  production:
     non_production: false
     input_mode: frozen_api_export
     snapshot_id: openalex_live_freeze

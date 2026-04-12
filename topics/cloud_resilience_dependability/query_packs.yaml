@@ -1,7 +1,7 @@
 version: 1
 topic: cloud_resilience_dependability
 description: >
-  Query packs for CSUR-grade retrieval of model-based resilience estimation
+  Query packs for production-grade retrieval of model-based resilience estimation
   in cloud-first distributed systems. Packs are executed independently and
   merged with full provenance and marginal-yield reporting.
 packs:

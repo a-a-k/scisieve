@@ -38,6 +38,15 @@ class VNextConfigTests(unittest.TestCase):
         self.assertEqual(args.command, "run")
         self.assertEqual(args.profile, "debug")
 
+    def test_legacy_csur_profile_alias_maps_to_production(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            resolved = load_resolved_config(
+                config_path=str(REPO_ROOT / "scisieve.yaml"),
+                profile_name="csur",
+                run_root_override=tmp,
+            )
+            self.assertEqual(resolved.profile_name, "production")
+
     def test_load_resolved_config_uses_override_run_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             resolved = load_resolved_config(
@@ -330,11 +339,11 @@ class VNextStageTests(unittest.TestCase):
             self.assertIn("preprint_watchlist", metadata)
             self.assertIn("label_primary_dimension", metadata.splitlines()[0])
 
-    def test_release_blocks_on_coverage_failures_for_csur(self) -> None:
+    def test_release_blocks_on_coverage_failures_for_production(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             resolved = load_resolved_config(
                 config_path=str(REPO_ROOT / "scisieve.yaml"),
-                profile_name="csur",
+                profile_name="production",
                 run_root_override=tmp,
             )
             ctx = create_context(resolved)
@@ -383,7 +392,7 @@ class VNextStageTests(unittest.TestCase):
             config_path.write_text(config_text, encoding="utf-8")
             resolved = load_resolved_config(
                 config_path=str(config_path),
-                profile_name="csur",
+                profile_name="production",
                 run_root_override=tmp,
             )
             ctx = create_context(resolved)
