@@ -12,8 +12,8 @@ project:
   license_spdx: MIT
 paths:
   working_dir: .scicrawl_runs
-  query_packs: query_packs.yaml
-  gray_registry: gray_registry.yaml
+  query_packs: topics/cloud_resilience_dependability/query_packs.yaml
+  gray_registry: topics/cloud_resilience_dependability/gray_registry.yaml
   topic_profile: topics/cloud_resilience_dependability/topic_profile.yaml
   anchor_benchmark: reference/scicrawl_anchor_benchmark_v1.csv
   baseline_metadata: reference/baseline_metadata.csv

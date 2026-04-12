@@ -38,8 +38,8 @@ python -m scicrawl release --config scicrawl.yaml --profile debug
 ## Config Files
 - `scicrawl.yaml`: profile settings (`debug`, `csur`) and working directories.
 - `topics/cloud_resilience_dependability/topic_profile.yaml`: bundled topic preset that defines screening terms, classifier cues, taxonomy labels, and extraction hints.
-- `query_packs.yaml`: scholarly pack definitions for the bundled preset.
-- `gray_registry.yaml`: domain-scoped gray-literature families and seed URLs for the bundled preset.
+- `topics/cloud_resilience_dependability/query_packs.yaml`: scholarly pack definitions for the bundled preset.
+- `topics/cloud_resilience_dependability/gray_registry.yaml`: domain-scoped gray-literature families and seed URLs for the bundled preset.
 
 ## Generic Topic Configuration
 - The execution core is now topic-configurable. Screening terms, negative exclusions, heuristic classifier cues, and label taxonomies are loaded from `paths.topic_profile` in `scicrawl.yaml`.

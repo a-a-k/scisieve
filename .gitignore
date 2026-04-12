@@ -8,3 +8,7 @@ output_full_run/
 output_precision_smoke/
 output_review_smoke/
 output_test_run/
+scicrawl_codex_package.zip
+scicrawl_codex_package/baseline_outputs/
+scicrawl_codex_package/baseline_audits/
+scicrawl_codex_package/optional_reference/

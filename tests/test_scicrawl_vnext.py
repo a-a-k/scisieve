@@ -347,11 +347,27 @@ class VNextStageTests(unittest.TestCase):
 
     def test_profile_guard_rejects_capped_production_profile(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            Path(tmp, "query_packs.yaml").write_text((REPO_ROOT / "query_packs.yaml").read_text(encoding="utf-8"), encoding="utf-8")
-            Path(tmp, "gray_registry.yaml").write_text((REPO_ROOT / "gray_registry.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+            topic_dir = Path(tmp) / "topics" / "cloud_resilience_dependability"
+            topic_dir.mkdir(parents=True, exist_ok=True)
+            (topic_dir / "query_packs.yaml").write_text(
+                (REPO_ROOT / "topics" / "cloud_resilience_dependability" / "query_packs.yaml").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            (topic_dir / "gray_registry.yaml").write_text(
+                (REPO_ROOT / "topics" / "cloud_resilience_dependability" / "gray_registry.yaml").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
             config_path = Path(tmp) / "scicrawl.yaml"
             config_text = (REPO_ROOT / "scicrawl.yaml").read_text(encoding="utf-8")
             config_text = config_text.replace("max_records_per_pack:\n", "max_records_per_pack: 10\n", 1)
+            config_text = config_text.replace(
+                "topics/cloud_resilience_dependability/query_packs.yaml",
+                str((topic_dir / "query_packs.yaml").resolve()).replace("\\", "/"),
+            )
+            config_text = config_text.replace(
+                "topics/cloud_resilience_dependability/gray_registry.yaml",
+                str((topic_dir / "gray_registry.yaml").resolve()).replace("\\", "/"),
+            )
             config_text = config_text.replace(
                 "reference/scicrawl_anchor_benchmark_v1.csv",
                 str((REPO_ROOT / "reference" / "scicrawl_anchor_benchmark_v1.csv").resolve()).replace("\\", "/"),
