@@ -1,0 +1,81 @@
+version: 1
+topic: cloud_resilience_dependability
+description: >
+  CSUR-grade automated SLR/MLR pipeline for model-based resilience and
+  dependability estimation in cloud-first distributed systems.
+contact_email: review@example.org
+project:
+  release_title: SciCrawl Replication Package
+  citation_authors:
+    - name: SciCrawl Team
+      orcid: ""
+  license_spdx: MIT
+paths:
+  working_dir: .scicrawl_runs
+  query_packs: query_packs.yaml
+  gray_registry: gray_registry.yaml
+  anchor_benchmark: reference/scicrawl_anchor_benchmark_v1.csv
+  baseline_metadata: reference/baseline_metadata.csv
+profiles:
+  debug:
+    non_production: true
+    input_mode: frozen_api_export
+    snapshot_id: openalex_live_debug_freeze
+    scholarly:
+      start_date: "2010-01-01"
+      end_date: ""
+      per_page: 200
+      max_records_per_pack: 40
+      max_preprints_per_pack: 20
+      resolve_preprints: true
+      resolve_preprints_threshold: 0.92
+    snowball:
+      enabled: true
+      max_rounds: 2
+      min_new_core_per_round: 1
+      backward_refs_per_seed: 40
+      forward_max_per_seed: 40
+      max_seeds: 15
+    fulltext:
+      enabled: false
+      limit: 10
+      requests_per_second: 1.0
+      concurrency: 2
+    gray:
+      enabled: true
+      max_urls_per_family: 6
+    review:
+      double_screen_fraction: 0.2
+      double_screen_seed: 42
+      false_negative_audit_size: 20
+  csur:
+    non_production: false
+    input_mode: frozen_api_export
+    snapshot_id: openalex_live_freeze
+    scholarly:
+      start_date: "2010-01-01"
+      end_date: ""
+      per_page: 200
+      max_records_per_pack:
+      max_preprints_per_pack:
+      resolve_preprints: true
+      resolve_preprints_threshold: 0.92
+    snowball:
+      enabled: true
+      max_rounds: 5
+      min_new_core_per_round: 3
+      backward_refs_per_seed: 250
+      forward_max_per_seed: 300
+      max_seeds: 25
+    fulltext:
+      enabled: true
+      limit: 50
+      requests_per_second: 1.0
+      concurrency: 3
+    gray:
+      enabled: true
+      max_urls_per_family: 20
+    review:
+      double_screen_fraction: 0.2
+      double_screen_seed: 42
+      false_negative_audit_size: 40

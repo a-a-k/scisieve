@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+output/
+smoke_output/
+smoke_output2/
+.scicrawl_runs/
+output_full_run/
+output_precision_smoke/
+output_review_smoke/
+output_test_run/
