@@ -1,4 +1,5 @@
 # SciSieve
+[![Tests](https://github.com/a-a-k/scisieve/actions/workflows/tests.yml/badge.svg)](https://github.com/a-a-k/scisieve/actions/workflows/tests.yml)
 
 Configurable pipeline for automated SLR/MLR construction. The core engine is topic-driven; the repository currently ships with a bundled cloud resilience/dependability preset. The preferred interface is the package CLI `scisieve`; `python main.py ...` remains as a legacy compatibility runner for the original preset.
 

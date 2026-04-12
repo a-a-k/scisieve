@@ -1943,6 +1943,7 @@ def _quality_score_from_hits(strength: int) -> tuple[int, float]:
 
 async def stage_snowball(ctx: PipelineContext) -> None:
     if not ctx.config.profile.snowball.enabled:
+        write_csv(ctx.config.paths.run_root / "citation_seed_set.csv", [], ["openalex_id", "doi"])
         write_csv(ctx.config.paths.run_root / "snowball_rounds.csv", [], SNOWBALL_ROUNDS_COLUMNS)
         write_csv(ctx.config.paths.run_root / "snowball_edges.csv", [], SNOWBALL_EDGES_COLUMNS)
         write_csv(ctx.config.paths.run_root / "snowball_candidates.csv", [], SNOWBALL_CANDIDATES_COLUMNS)

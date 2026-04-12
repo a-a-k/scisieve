@@ -38,6 +38,10 @@ jobs:
         run: |
           python -m py_compile api_clients.py extractor.py main.py models.py protocol.py snowballing.py scisieve/__init__.py scisieve/__main__.py scisieve/cli.py scisieve/common.py scisieve/config.py scisieve/pipeline.py scripts/compute_kappa.py
 
+      - name: Run offline smoke test
+        run: |
+          python -m unittest tests.test_scisieve_smoke -v
+
       - name: Run unit tests
         run: |
           python -m unittest discover -s tests -v
