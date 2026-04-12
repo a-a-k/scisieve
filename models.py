@@ -90,7 +90,9 @@ def term_in_text(term: str, text: str) -> bool:
     tokens = [token for token in re.split(r"[\s-]+", term.lower()) if token]
     if not tokens:
         return False
-    pattern = rf"\b{r'(?:[\s-]+)'.join(re.escape(token) for token in tokens)}\b"
+    separator_pattern = r"(?:[\s-]+)"
+    token_pattern = separator_pattern.join(re.escape(token) for token in tokens)
+    pattern = rf"\b{token_pattern}\b"
     return re.search(pattern, normalized_text) is not None
 
 
