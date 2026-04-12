@@ -156,7 +156,9 @@ def _term_to_regex_pattern(term: str, *, allow_suffix_on_last_token: bool = Fals
         return r"$^"
     if len(token_patterns) == 1:
         return rf"\b{token_patterns[0]}\b"
-    return rf"\b{r'(?:[\s-]+)'.join(token_patterns)}\b"
+    separator_pattern = r"(?:[\s-]+)"
+    joined_pattern = separator_pattern.join(token_patterns)
+    return rf"\b{joined_pattern}\b"
 
 
 def compile_terms_to_regex(terms: Sequence[str]) -> list[re.Pattern[str]]:
