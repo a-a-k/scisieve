@@ -2009,6 +2009,48 @@ def _screening_fulltext_defaults(row: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _merge_screening_rows(
+    existing_rows: Sequence[Mapping[str, Any]],
+    additional_rows: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = [dict(row) for row in existing_rows]
+    for candidate in additional_rows:
+        candidate_row = dict(candidate)
+        record_id = str(candidate_row.get("record_id") or "")
+        if not record_id:
+            merged.append(candidate_row)
+            continue
+        replaced = False
+        for index, current in enumerate(merged):
+            if str(current.get("record_id") or "") != record_id:
+                continue
+            current_decision = str(current.get("resolved_decision") or current.get("machine_decision") or "")
+            candidate_decision = str(candidate_row.get("resolved_decision") or candidate_row.get("machine_decision") or "")
+            stronger = candidate_row if _decision_rank(candidate_decision) >= _decision_rank(current_decision) else current
+            weaker = current if stronger is candidate_row else candidate_row
+            stronger["query_pack_ids"] = _merge_multi_value(current.get("query_pack_ids"), candidate_row.get("query_pack_ids"))
+            stronger["anchor_match_ids"] = _merge_multi_value(current.get("anchor_match_ids"), candidate_row.get("anchor_match_ids"))
+            stronger["negative_sentinel_match"] = _merge_multi_value(
+                current.get("negative_sentinel_match"),
+                candidate_row.get("negative_sentinel_match"),
+            )
+            stronger["machine_reason"] = " | ".join(
+                unique_preserve_order(
+                    value
+                    for value in [current.get("machine_reason", ""), candidate_row.get("machine_reason", "")]
+                    if value
+                )
+            )
+            stronger["resolved_decision"] = stronger.get("resolved_decision") or stronger.get("machine_decision", "")
+            stronger["resolved_reason"] = stronger.get("resolved_reason") or weaker.get("resolved_reason", "") or ""
+            merged[index] = stronger
+            replaced = True
+            break
+        if not replaced:
+            merged.append(candidate_row)
+    return merged
+
+
 def _fulltext_candidate_rows(
     metadata_rows: Sequence[Mapping[str, Any]],
     screening_ft_rows: Sequence[Mapping[str, Any]],
@@ -3353,10 +3395,28 @@ def _write_coverage_report(
 
 async def stage_anchor_check(ctx: PipelineContext) -> None:
     metadata_rows = read_csv(ctx.config.paths.run_root / "metadata.csv")
-    screening_rows = {row["record_id"]: row for row in read_csv(ctx.config.paths.run_root / "screening_title_abstract.csv") if row.get("record_id")}
     normalized_rows = _normalized_rows(ctx)
     snowball_included_rows = read_csv(ctx.config.paths.run_root / "snowball_included.csv")
     snowball_excluded_rows = read_csv(ctx.config.paths.run_root / "snowball_excluded.csv")
+    final_rows = _merge_metadata_rows(metadata_rows, snowball_included_rows)
+    screening_rows = {
+        row["record_id"]: row
+        for row in _merge_screening_rows(
+            read_csv(ctx.config.paths.run_root / "screening_title_abstract.csv"),
+            snowball_excluded_rows,
+        )
+        if row.get("record_id")
+    }
+    screening_by_doi = {
+        normalize_doi(row.get("doi")): row
+        for row in screening_rows.values()
+        if normalize_doi(row.get("doi"))
+    }
+    screening_by_title = {
+        normalize_title(row.get("title", "")): row
+        for row in screening_rows.values()
+        if row.get("title")
+    }
     retrieved_rows = list(normalized_rows)
     retrieved_rows.extend(
         {
@@ -3369,8 +3429,8 @@ async def stage_anchor_check(ctx: PipelineContext) -> None:
     )
     retrieved_by_doi = {normalize_doi(row.get("doi")): row for row in retrieved_rows if normalize_doi(row.get("doi"))}
     retrieved_by_title = {normalize_title(row.get("title", "")): row for row in retrieved_rows if row.get("title")}
-    metadata_by_doi = {normalize_doi(row.get("doi")): row for row in metadata_rows if normalize_doi(row.get("doi"))}
-    metadata_by_title = {normalize_title(row.get("title", "")): row for row in metadata_rows if row.get("title")}
+    metadata_by_doi = {normalize_doi(row.get("doi")): row for row in final_rows if normalize_doi(row.get("doi"))}
+    metadata_by_title = {normalize_title(row.get("title", "")): row for row in final_rows if row.get("title")}
 
     coverage_rows: list[dict[str, Any]] = []
     negative_rows: list[dict[str, Any]] = []
@@ -3432,6 +3492,13 @@ async def stage_anchor_check(ctx: PipelineContext) -> None:
                     str(matched_retrieved.get("title") or ""),
                 )
                 screening = screening_rows.get(record_id, {})
+                if not screening:
+                    row_doi = normalize_doi(matched_retrieved.get("doi"))
+                    row_title = normalize_title(str(matched_retrieved.get("title") or ""))
+                    if row_doi and row_doi in screening_by_doi:
+                        screening = screening_by_doi[row_doi]
+                    elif row_title and row_title in screening_by_title:
+                        screening = screening_by_title[row_title]
                 decision = screening.get("machine_decision", "")
                 if decision == "tertiary_background":
                     lost_stage = "tertiary_routed"

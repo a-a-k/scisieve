@@ -735,6 +735,131 @@ class VNextStageTests(unittest.TestCase):
             self.assertIn("A_TEST,positive,A,include,True,True,pack_resilience_experiments,screen_ft_excluded", coverage)
             self.assertIn("needs_fulltext_queue", coverage)
 
+    def test_anchor_check_treats_snowball_included_as_discovered(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            resolved = load_resolved_config(
+                config_path=str(REPO_ROOT / "scisieve.yaml"),
+                profile_name="debug",
+                run_root_override=tmp,
+            )
+            ctx = create_context(resolved)
+            ctx.anchor_rows = [
+                {
+                    "anchor_id": "A_SNOW",
+                    "polarity": "positive",
+                    "tier": "A",
+                    "expected_stage": "include",
+                    "anchor_title": "Snowball discovered service resilience paper",
+                    "doi": "10.1000/snowball-hit",
+                }
+            ]
+            (ctx.config.paths.normalized_dir / "normalized_candidates.jsonl").write_text("", encoding="utf-8")
+            (ctx.config.paths.run_root / "metadata.csv").write_text(",".join(METADATA_COLUMNS) + "\n", encoding="utf-8")
+            (ctx.config.paths.run_root / "screening_title_abstract.csv").write_text(
+                ",".join(SCREENING_TA_COLUMNS) + "\n",
+                encoding="utf-8",
+            )
+            snowball_row = {
+                "record_id": "rec_snow",
+                "track": "scholarly_core",
+                "archival_status": "archival",
+                "source": "Snowballing",
+                "discovery_mode": "snowball",
+                "query_pack_ids": "pack_review_discovery",
+                "query_terms_triggered": "resilien*;cloud computing",
+                "anchor_match_ids": "A_SNOW",
+                "negative_sentinel_match": "",
+                "openalex_id": "https://openalex.org/W777",
+                "doi": "10.1000/snowball-hit",
+                "title": "Snowball discovered service resilience paper",
+                "publication_year": "2024",
+                "publication_date": "2024-01-01",
+                "type": "article",
+                "primary_source_name": "Venue",
+                "cited_by_count": "3",
+                "best_pdf_url": "",
+                "label_primary_dimension": "approach_family",
+                "label_primary_value": "Analytics",
+                "label_secondary_dimension": "deployment_scope",
+                "label_secondary_value": "Cloud",
+                "topic_labels_json": "{}",
+                "machine_decision": "include",
+                "machine_confidence": "0.90",
+                "machine_reason": "snowball include",
+                "matched_archival_id": "",
+                "matched_archival_doi": "",
+                "retrieval_score_norm": "1.0",
+            }
+            with (ctx.config.paths.run_root / "snowball_included.csv").open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=METADATA_COLUMNS)
+                writer.writeheader()
+                writer.writerow(snowball_row)
+            (ctx.config.paths.run_root / "snowball_excluded.csv").write_text(
+                ",".join(SCREENING_TA_COLUMNS) + "\n",
+                encoding="utf-8",
+            )
+            asyncio.run(stage_anchor_check(ctx))
+            coverage = (ctx.config.paths.run_root / "coverage_anchor_results.csv").read_text(encoding="utf-8")
+            self.assertIn("A_SNOW,positive,A,include,True,True,pack_review_discovery,,scholarly_core,rec_snow,discovered,False", coverage)
+
+    def test_anchor_check_uses_snowball_excluded_screening_decision(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            resolved = load_resolved_config(
+                config_path=str(REPO_ROOT / "scisieve.yaml"),
+                profile_name="debug",
+                run_root_override=tmp,
+            )
+            ctx = create_context(resolved)
+            ctx.anchor_rows = [
+                {
+                    "anchor_id": "A_TERT",
+                    "polarity": "positive",
+                    "tier": "A",
+                    "expected_stage": "discovery_only_or_tertiary",
+                    "anchor_title": "Snowball tertiary review paper",
+                    "doi": "10.1000/snowball-tertiary",
+                }
+            ]
+            (ctx.config.paths.normalized_dir / "normalized_candidates.jsonl").write_text("", encoding="utf-8")
+            (ctx.config.paths.run_root / "metadata.csv").write_text(",".join(METADATA_COLUMNS) + "\n", encoding="utf-8")
+            (ctx.config.paths.run_root / "screening_title_abstract.csv").write_text(
+                ",".join(SCREENING_TA_COLUMNS) + "\n",
+                encoding="utf-8",
+            )
+            (ctx.config.paths.run_root / "snowball_included.csv").write_text(
+                ",".join(METADATA_COLUMNS) + "\n",
+                encoding="utf-8",
+            )
+            screening_row = {
+                "record_id": "rec_tert",
+                "openalex_id": "https://openalex.org/W778",
+                "doi": "10.1000/snowball-tertiary",
+                "title": "Snowball tertiary review paper",
+                "year": "2024",
+                "query_pack_ids": "pack_review_discovery",
+                "anchor_match_ids": "A_TERT",
+                "negative_sentinel_match": "",
+                "machine_decision": "tertiary_background",
+                "machine_confidence": "0.86",
+                "machine_reason": "review",
+                "reviewer1_decision": "",
+                "reviewer1_reason": "",
+                "reviewer2_decision": "",
+                "reviewer2_reason": "",
+                "resolved_decision": "tertiary_background",
+                "resolved_reason": "",
+                "decision_stage_timestamp": "2026-04-13T00:00:00Z",
+                "notes": "snowball_round=1",
+            }
+            with (ctx.config.paths.run_root / "snowball_excluded.csv").open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=SCREENING_TA_COLUMNS)
+                writer.writeheader()
+                writer.writerow(screening_row)
+            asyncio.run(stage_anchor_check(ctx))
+            coverage = (ctx.config.paths.run_root / "coverage_anchor_results.csv").read_text(encoding="utf-8")
+            self.assertIn("A_TERT,positive,A,discovery_only_or_tertiary,True,True,pack_review_discovery,tertiary_routed,,", coverage)
+            self.assertIn("tertiary_background,False", coverage)
+
     def test_run_pipeline_resumes_from_paused_stage(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             resolved = load_resolved_config(
