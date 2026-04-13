@@ -1,0 +1,197 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Release tag to build, for example v1.0.2"
+        required: true
+        type: string
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      checkout_ref: ${{ steps.ref.outputs.checkout_ref }}
+      tag_name: ${{ steps.ref.outputs.tag_name }}
+      version_no_v: ${{ steps.ref.outputs.version_no_v }}
+    steps:
+      - name: Resolve release ref
+        id: ref
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.ref }}" ]; then
+            RAW_REF="${{ github.event.inputs.ref }}"
+          else
+            RAW_REF="${GITHUB_REF_NAME}"
+          fi
+          if [[ ! "$RAW_REF" =~ ^v[0-9]+(\.[0-9]+){2}([.-][A-Za-z0-9]+)?$ ]]; then
+            echo "Expected a release tag like v1.0.2, got: $RAW_REF" >&2
+            exit 1
+          fi
+          {
+            echo "checkout_ref=$RAW_REF"
+            echo "tag_name=$RAW_REF"
+            echo "version_no_v=${RAW_REF#v}"
+          } >> "$GITHUB_OUTPUT"
+
+  test:
+    needs: resolve
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - "3.11"
+          - "3.12"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.resolve.outputs.checkout_ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install -e .
+
+      - name: Compile Python files
+        run: |
+          python -m py_compile api_clients.py extractor.py main.py models.py protocol.py snowballing.py scisieve/__init__.py scisieve/__main__.py scisieve/cli.py scisieve/common.py scisieve/config.py scisieve/pipeline.py scripts/compute_kappa.py
+
+      - name: Run offline smoke test
+        run: |
+          python -m unittest tests.test_scisieve_smoke -v
+
+      - name: Run unit tests
+        run: |
+          python -m unittest discover -s tests -v
+
+  build-python:
+    needs:
+      - resolve
+      - test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.resolve.outputs.checkout_ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Build wheel and sdist
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+
+      - name: Verify install from built wheel
+        shell: bash
+        run: |
+          python -m venv .pkg-venv
+          .pkg-venv/bin/python -m pip install --upgrade pip
+          .pkg-venv/bin/python -m pip install dist/scisieve-${{ needs.resolve.outputs.version_no_v }}-py3-none-any.whl
+          .pkg-venv/bin/python -c "import scisieve; import api_clients, models, protocol, snowballing; print(scisieve.__version__)"
+          .pkg-venv/bin/scisieve --help
+
+      - name: Upload Python distribution artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-dist
+          path: dist/*
+          if-no-files-found: error
+
+  publish-ghcr:
+    needs:
+      - resolve
+      - test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.resolve.outputs.checkout_ref }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/scisieve:${{ needs.resolve.outputs.tag_name }}
+            ghcr.io/${{ github.repository_owner }}/scisieve:${{ needs.resolve.outputs.version_no_v }}
+            ghcr.io/${{ github.repository_owner }}/scisieve:latest
+          labels: |
+            org.opencontainers.image.title=SciSieve
+            org.opencontainers.image.description=Configurable pipeline for automated SLR/MLR construction
+            org.opencontainers.image.version=${{ needs.resolve.outputs.version_no_v }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+  publish-release:
+    needs:
+      - resolve
+      - build-python
+      - publish-ghcr
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Python distribution artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: python-dist
+          path: dist
+
+      - name: Prepare release notes
+        shell: bash
+        run: |
+          cat > release-notes.md <<'EOF'
+          Automated release generated from a version tag.
+
+          Included artifacts:
+          - Python wheel and source distribution attached below
+          - GHCR package: ghcr.io/${{ github.repository_owner }}/scisieve:${{ needs.resolve.outputs.version_no_v }}
+          EOF
+
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          TAG="${{ needs.resolve.outputs.tag_name }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+            gh release edit "$TAG" --title "$TAG" --notes-file release-notes.md
+          else
+            gh release create "$TAG" dist/* --title "$TAG" --notes-file release-notes.md
+          fi

@@ -128,6 +128,23 @@ docker pull ghcr.io/a-a-k/scisieve:1.0.2
 docker run --rm ghcr.io/a-a-k/scisieve:1.0.2 --help
 ```
 
+## Release Automation
+Version tags trigger the release workflow automatically.
+
+What happens on `v*` tag push:
+- tests run on Python `3.11` and `3.12`
+- wheel and sdist are built
+- the built wheel is installed and smoke-checked in a clean virtual environment
+- the GitHub Release is created or updated with Python artifacts
+- the container image is published to GHCR
+
+Example:
+```bash
+git tag -a v1.0.3 -m "v1.0.3"
+git push origin main
+git push origin refs/tags/v1.0.3
+```
+
 ## Config Files
 - `scisieve.yaml`: default generic config with `debug` and `production` profiles.
 - `examples/example_topic/topic_profile.yaml`: example screening terms, classifier cues, taxonomy labels, and extraction hints.
