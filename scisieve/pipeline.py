@@ -1385,7 +1385,7 @@ def _row_to_research_work(ctx: PipelineContext, row: Mapping[str, Any], *, sourc
         topic_labels_json=label_fields.get("topic_labels_json") or None,
         cited_by_count=int(row.get("cited_by_count") or 0) or None,
         best_pdf_url=str(row.get("best_pdf_url") or "") or None,
-        abstract=str(row.get("abstract_text_reconstructed") or "") or None,
+        abstract=str(row.get("abstract_text_reconstructed") or row.get("abstract") or "") or None,
     )
 
 
@@ -1738,6 +1738,112 @@ def _track_rank(track: str) -> int:
     }.get(track, 0)
 
 
+def _metadata_canonical_keys(row: Mapping[str, Any]) -> list[tuple[str, str]]:
+    keys: list[tuple[str, str]] = []
+    openalex_id = str(row.get("openalex_id") or "").strip()
+    if openalex_id:
+        keys.append(("openalex", openalex_id))
+    doi = normalize_doi(row.get("doi"))
+    if doi:
+        keys.append(("doi", doi))
+    title = normalize_title(str(row.get("title") or ""))
+    if title:
+        keys.append(("title", title))
+    return keys
+
+
+def _metadata_rows_overlap(left: Mapping[str, Any], right: Mapping[str, Any]) -> bool:
+    return bool(set(_metadata_canonical_keys(left)) & set(_metadata_canonical_keys(right)))
+
+
+def _metadata_row_rank(row: Mapping[str, Any]) -> tuple[int, int, int, int, str]:
+    work_type = str(row.get("type") or "")
+    source = str(row.get("source") or "")
+    archival_rank = 0
+    if _is_archival_work_type(work_type):
+        archival_rank = 1 if "Title Resolution" in source else 2
+    publication_date = str(row.get("publication_date") or "")
+    publication_year = str(row.get("publication_year") or "")
+    date_rank = 0
+    if publication_date:
+        try:
+            date_rank = datetime.fromisoformat(publication_date).date().toordinal()
+        except ValueError:
+            date_rank = 0
+    elif publication_year.isdigit():
+        date_rank = date(int(publication_year), 1, 1).toordinal()
+    return (
+        _track_rank(str(row.get("track") or "")),
+        archival_rank,
+        int(row.get("cited_by_count", 0) or 0),
+        date_rank,
+        str(row.get("openalex_id") or ""),
+    )
+
+
+def _merge_metadata_pair(left: Mapping[str, Any], right: Mapping[str, Any]) -> dict[str, Any]:
+    left_row = dict(left)
+    right_row = dict(right)
+    stronger = left_row if _metadata_row_rank(left_row) >= _metadata_row_rank(right_row) else right_row
+    weaker = right_row if stronger is left_row else left_row
+
+    stronger["source"] = _merge_multi_value(left_row.get("source"), right_row.get("source"))
+    stronger["discovery_mode"] = _merge_multi_value(left_row.get("discovery_mode"), right_row.get("discovery_mode"))
+    stronger["query_pack_ids"] = _merge_multi_value(left_row.get("query_pack_ids"), right_row.get("query_pack_ids"))
+    stronger["query_terms_triggered"] = _merge_multi_value(
+        left_row.get("query_terms_triggered"),
+        right_row.get("query_terms_triggered"),
+    )
+    stronger["anchor_match_ids"] = _merge_multi_value(left_row.get("anchor_match_ids"), right_row.get("anchor_match_ids"))
+    stronger["negative_sentinel_match"] = _merge_multi_value(
+        left_row.get("negative_sentinel_match"),
+        right_row.get("negative_sentinel_match"),
+    )
+    stronger["matched_archival_id"] = stronger.get("matched_archival_id") or weaker.get("matched_archival_id") or ""
+    stronger["matched_archival_doi"] = stronger.get("matched_archival_doi") or weaker.get("matched_archival_doi") or ""
+    stronger["machine_reason"] = " | ".join(
+        unique_preserve_order(
+            value for value in [left_row.get("machine_reason", ""), right_row.get("machine_reason", "")] if value
+        )
+    )
+    stronger_confidence = max(
+        float(left_row.get("machine_confidence", 0) or 0),
+        float(right_row.get("machine_confidence", 0) or 0),
+    )
+    stronger["machine_confidence"] = f"{stronger_confidence:.2f}" if stronger_confidence else ""
+    stronger["retrieval_score_norm"] = stronger.get("retrieval_score_norm") or weaker.get("retrieval_score_norm") or ""
+    stronger["best_pdf_url"] = stronger.get("best_pdf_url") or weaker.get("best_pdf_url") or ""
+    stronger["primary_source_name"] = stronger.get("primary_source_name") or weaker.get("primary_source_name") or ""
+    stronger["record_id"] = stronger.get("record_id") or weaker.get("record_id") or ""
+    stronger["archival_status"] = stronger.get("archival_status") or weaker.get("archival_status") or ""
+    stronger["label_primary_dimension"] = stronger.get("label_primary_dimension") or weaker.get("label_primary_dimension") or ""
+    stronger["label_primary_value"] = stronger.get("label_primary_value") or weaker.get("label_primary_value") or ""
+    stronger["label_secondary_dimension"] = stronger.get("label_secondary_dimension") or weaker.get("label_secondary_dimension") or ""
+    stronger["label_secondary_value"] = stronger.get("label_secondary_value") or weaker.get("label_secondary_value") or ""
+    stronger["topic_labels_json"] = stronger.get("topic_labels_json") or weaker.get("topic_labels_json") or ""
+    return stronger
+
+
+def _deduplicate_metadata_rows(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    deduped: list[dict[str, Any]] = []
+    for row in rows:
+        candidate = dict(row)
+        merged_any = True
+        while merged_any:
+            merged_any = False
+            next_rows: list[dict[str, Any]] = []
+            for existing in deduped:
+                if _metadata_rows_overlap(existing, candidate):
+                    candidate = _merge_metadata_pair(existing, candidate)
+                    merged_any = True
+                else:
+                    next_rows.append(existing)
+            deduped = next_rows
+        deduped.append(candidate)
+    deduped.sort(key=lambda row: (str(row.get("track") or ""), str(row.get("title") or ""), str(row.get("openalex_id") or "")))
+    return deduped
+
+
 def _decision_rank(decision: str) -> int:
     return {
         "include": 5,
@@ -1753,43 +1859,7 @@ def _merge_metadata_rows(
     existing_rows: Sequence[Mapping[str, Any]],
     additional_rows: Sequence[Mapping[str, Any]],
 ) -> list[dict[str, Any]]:
-    merged: dict[str, dict[str, Any]] = {
-        _candidate_row_key(row): dict(row)
-        for row in existing_rows
-        if _candidate_row_key(row)
-    }
-    for row in additional_rows:
-        key = _candidate_row_key(row)
-        if not key:
-            continue
-        incoming = dict(row)
-        current = merged.get(key)
-        if current is None:
-            merged[key] = incoming
-            continue
-        stronger = incoming if _track_rank(str(incoming.get("track") or "")) > _track_rank(str(current.get("track") or "")) else current
-        weaker = current if stronger is incoming else incoming
-        stronger["source"] = _merge_multi_value(current.get("source"), incoming.get("source"))
-        stronger["discovery_mode"] = _merge_multi_value(current.get("discovery_mode"), incoming.get("discovery_mode"))
-        stronger["query_pack_ids"] = _merge_multi_value(current.get("query_pack_ids"), incoming.get("query_pack_ids"))
-        stronger["query_terms_triggered"] = _merge_multi_value(current.get("query_terms_triggered"), incoming.get("query_terms_triggered"))
-        stronger["anchor_match_ids"] = _merge_multi_value(current.get("anchor_match_ids"), incoming.get("anchor_match_ids"))
-        stronger["negative_sentinel_match"] = _merge_multi_value(current.get("negative_sentinel_match"), incoming.get("negative_sentinel_match"))
-        stronger["matched_archival_id"] = stronger.get("matched_archival_id") or weaker.get("matched_archival_id") or ""
-        stronger["matched_archival_doi"] = stronger.get("matched_archival_doi") or weaker.get("matched_archival_doi") or ""
-        stronger["machine_reason"] = " | ".join(
-            unique_preserve_order(value for value in [current.get("machine_reason", ""), incoming.get("machine_reason", "")] if value)
-        )
-        stronger_confidence = max(
-            float(current.get("machine_confidence", 0) or 0),
-            float(incoming.get("machine_confidence", 0) or 0),
-        )
-        stronger["machine_confidence"] = f"{stronger_confidence:.2f}" if stronger_confidence else ""
-        stronger["retrieval_score_norm"] = stronger.get("retrieval_score_norm") or weaker.get("retrieval_score_norm") or ""
-        merged[key] = stronger
-    rows = list(merged.values())
-    rows.sort(key=lambda row: (str(row.get("track") or ""), str(row.get("title") or ""), str(row.get("openalex_id") or "")))
-    return rows
+    return _deduplicate_metadata_rows([*existing_rows, *additional_rows])
 
 
 def _merge_screening_rows(
@@ -1943,8 +2013,8 @@ async def stage_dedup(ctx: PipelineContext) -> None:
         "preprint_duplicates_removed_against_core": dedup_stats.preprint_duplicates_removed_against_core,
         "preprints_resolved_to_existing_core": resolution_result.resolved_to_existing_core,
         "preprints_resolved_to_new_archival": resolution_result.resolved_to_new_archival,
-        "final_core_count": len(resolution_result.core_works),
-        "final_preprint_watchlist_count": len(resolution_result.watchlist_works),
+        "core_after_dedup": sum(1 for work in resolution_result.core_works if _is_topical_work(ctx, work)),
+        "preprint_watchlist_after_dedup": sum(1 for work in resolution_result.watchlist_works if _is_topical_work(ctx, work)),
     }
     write_csv(ctx.config.paths.run_root / "dedup_summary.csv", [dedup_summary], list(dedup_summary))
 
@@ -1960,6 +2030,61 @@ def _dedup_state(ctx: PipelineContext) -> tuple[list[dict[str, Any]], list[dict[
         [row for row in core if isinstance(row, dict)],
         [row for row in watchlist if isinstance(row, dict)],
     )
+
+
+def _work_screening_text(work: ResearchWork) -> str:
+    return " ".join(part for part in (work.title, work.abstract or "") if part).strip()
+
+
+def _is_topical_work(ctx: PipelineContext, work: ResearchWork) -> bool:
+    return evaluate_protocol(
+        _work_screening_text(work),
+        compiled_groups=ctx.compiled_groups,
+        compiled_exclusions=ctx.compiled_exclusions,
+    )[0]
+
+
+def _dedup_summary_from_state(ctx: PipelineContext) -> dict[str, int]:
+    normalized_rows = _normalized_rows(ctx)
+    core_rows, watchlist_rows = _dedup_state(ctx)
+    existing_summary_rows = read_csv(ctx.config.paths.run_root / "dedup_summary.csv")
+    existing_summary = existing_summary_rows[0] if existing_summary_rows else {}
+    core_works = [_row_to_research_work(ctx, row, source=str(row.get("source") or "OpenAlex Query Packs"), track="core") for row in core_rows]
+    watchlist_works = [
+        _row_to_research_work(ctx, row, source=str(row.get("source") or "OpenAlex Query Packs"), track="preprint_watchlist")
+        for row in watchlist_rows
+    ]
+    return {
+        "raw_core_retrieved": sum(1 for row in normalized_rows if str(row.get("type") or "") in {"article", "proceedings-article"}),
+        "raw_preprint_retrieved": sum(1 for row in normalized_rows if str(row.get("type") or "") == "preprint"),
+        "included_topical_core_raw": sum(
+            1
+            for row in normalized_rows
+            if str(row.get("type") or "") in {"article", "proceedings-article"}
+            and evaluate_protocol(
+                " ".join((str(row.get("title") or ""), str(row.get("abstract_text_reconstructed") or ""))).strip(),
+                compiled_groups=ctx.compiled_groups,
+                compiled_exclusions=ctx.compiled_exclusions,
+            )[0]
+        ),
+        "included_topical_preprint_raw": sum(
+            1
+            for row in normalized_rows
+            if str(row.get("type") or "") == "preprint"
+            and evaluate_protocol(
+                " ".join((str(row.get("title") or ""), str(row.get("abstract_text_reconstructed") or ""))).strip(),
+                compiled_groups=ctx.compiled_groups,
+                compiled_exclusions=ctx.compiled_exclusions,
+            )[0]
+        ),
+        "core_duplicates_removed_by_doi_or_title": int(existing_summary.get("core_duplicates_removed_by_doi_or_title", 0) or 0),
+        "preprint_duplicates_removed_by_doi_or_title": int(existing_summary.get("preprint_duplicates_removed_by_doi_or_title", 0) or 0),
+        "preprint_duplicates_removed_against_core": int(existing_summary.get("preprint_duplicates_removed_against_core", 0) or 0),
+        "preprints_resolved_to_existing_core": int(existing_summary.get("preprints_resolved_to_existing_core", 0) or 0),
+        "preprints_resolved_to_new_archival": int(existing_summary.get("preprints_resolved_to_new_archival", 0) or 0),
+        "core_after_dedup": sum(1 for work in core_works if _is_topical_work(ctx, work)),
+        "preprint_watchlist_after_dedup": sum(1 for work in watchlist_works if _is_topical_work(ctx, work)),
+    }
 
 
 def _lookup_normalized_row(ctx: PipelineContext) -> dict[str, dict[str, Any]]:
@@ -1979,6 +2104,23 @@ def _lookup_normalized_row(ctx: PipelineContext) -> dict[str, dict[str, Any]]:
 
 def stage_screen_ta(ctx: PipelineContext) -> None:
     core_rows, watchlist_rows = _dedup_state(ctx)
+    write_csv(
+        ctx.config.paths.run_root / "dedup_summary.csv",
+        [_dedup_summary_from_state(ctx)],
+        [
+            "raw_core_retrieved",
+            "raw_preprint_retrieved",
+            "included_topical_core_raw",
+            "included_topical_preprint_raw",
+            "core_duplicates_removed_by_doi_or_title",
+            "preprint_duplicates_removed_by_doi_or_title",
+            "preprint_duplicates_removed_against_core",
+            "preprints_resolved_to_existing_core",
+            "preprints_resolved_to_new_archival",
+            "core_after_dedup",
+            "preprint_watchlist_after_dedup",
+        ],
+    )
     normalized_lookup = _lookup_normalized_row(ctx)
     screening_rows: list[dict[str, Any]] = []
     screening_ft_rows: list[dict[str, Any]] = []
@@ -2073,8 +2215,8 @@ def _write_prisma_counts(ctx: PipelineContext) -> None:
         "retrieved_preprint_raw": sum(1 for row in normalized_rows if str(row.get("type") or "") == "preprint"),
         "included_topical_core_raw": int(dedup_summary.get("included_topical_core_raw", 0) or 0),
         "included_topical_preprint_raw": int(dedup_summary.get("included_topical_preprint_raw", 0) or 0),
-        "core_after_dedup": int(dedup_summary.get("final_core_count", 0) or 0),
-        "preprint_watchlist_after_dedup": int(dedup_summary.get("final_preprint_watchlist_count", 0) or 0),
+        "core_after_dedup": int(dedup_summary.get("core_after_dedup", 0) or 0),
+        "preprint_watchlist_after_dedup": int(dedup_summary.get("preprint_watchlist_after_dedup", 0) or 0),
         "preprints_resolved_to_existing_core": int(dedup_summary.get("preprints_resolved_to_existing_core", 0) or 0),
         "preprints_resolved_to_new_archival": int(dedup_summary.get("preprints_resolved_to_new_archival", 0) or 0),
         "final_export_core": sum(1 for row in metadata_rows if row.get("track") == "scholarly_core"),
@@ -2466,6 +2608,12 @@ async def stage_snowball(ctx: PipelineContext) -> None:
                     "best_pdf_url": best_pdf_url or "",
                 }
                 classifier = _topic_classifier(ctx, row)
+                if classifier["machine_decision"] == "include" and not _is_archival_work_type(row["type"]):
+                    classifier = {
+                        **classifier,
+                        "machine_decision": "exclude",
+                        "machine_reason": f"{classifier['machine_reason']}; non_archival_work_type={row['type']}",
+                    }
                 if classifier["topical_score"] > 0:
                     topical_pass_count += 1
                 anchor_proximity = max(

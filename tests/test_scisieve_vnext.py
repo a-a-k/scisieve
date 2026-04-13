@@ -18,6 +18,7 @@ from scisieve.pipeline import (
     SCREENING_TA_COLUMNS,
     _assert_profile_guards,
     _build_scholarly_filter,
+    _merge_metadata_rows,
     _record_id_for_work,
     _topic_classifier,
     create_context,
@@ -241,6 +242,80 @@ class VNextClassifierTests(unittest.TestCase):
 
 
 class VNextStageTests(unittest.TestCase):
+    def test_merge_metadata_rows_collapses_same_title_with_different_doi(self) -> None:
+        existing = [
+            {
+                "record_id": "rec1",
+                "track": "scholarly_core",
+                "archival_status": "archival",
+                "source": "Snowballing",
+                "discovery_mode": "snowball",
+                "query_pack_ids": "pack_alpha",
+                "query_terms_triggered": "reliability",
+                "anchor_match_ids": "",
+                "negative_sentinel_match": "",
+                "openalex_id": "https://openalex.org/W1",
+                "doi": "10.1000/a",
+                "title": "An energy-aware fault tolerant scheduling framework",
+                "publication_year": "2024",
+                "publication_date": "2024-01-01",
+                "type": "article",
+                "primary_source_name": "Venue A",
+                "cited_by_count": "7",
+                "best_pdf_url": "",
+                "label_primary_dimension": "approach_family",
+                "label_primary_value": "Simulation",
+                "label_secondary_dimension": "deployment_scope",
+                "label_secondary_value": "OrchestratedPlatform",
+                "topic_labels_json": "{}",
+                "machine_decision": "include",
+                "machine_confidence": "0.70",
+                "machine_reason": "first",
+                "matched_archival_id": "",
+                "matched_archival_doi": "",
+                "retrieval_score_norm": "0.70",
+            }
+        ]
+        additional = [
+            {
+                "record_id": "rec2",
+                "track": "scholarly_core",
+                "archival_status": "archival",
+                "source": "Snowballing",
+                "discovery_mode": "snowball",
+                "query_pack_ids": "pack_beta",
+                "query_terms_triggered": "fault injection",
+                "anchor_match_ids": "",
+                "negative_sentinel_match": "",
+                "openalex_id": "https://openalex.org/W2",
+                "doi": "10.1000/b",
+                "title": "An energy-aware fault tolerant scheduling framework",
+                "publication_year": "2025",
+                "publication_date": "2025-01-01",
+                "type": "article",
+                "primary_source_name": "Venue B",
+                "cited_by_count": "15",
+                "best_pdf_url": "",
+                "label_primary_dimension": "approach_family",
+                "label_primary_value": "Simulation",
+                "label_secondary_dimension": "deployment_scope",
+                "label_secondary_value": "OrchestratedPlatform",
+                "topic_labels_json": "{}",
+                "machine_decision": "include",
+                "machine_confidence": "0.85",
+                "machine_reason": "second",
+                "matched_archival_id": "",
+                "matched_archival_doi": "",
+                "retrieval_score_norm": "0.80",
+            }
+        ]
+
+        merged = _merge_metadata_rows(existing, additional)
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0]["openalex_id"], "https://openalex.org/W2")
+        self.assertIn("pack_alpha", merged[0]["query_pack_ids"])
+        self.assertIn("pack_beta", merged[0]["query_pack_ids"])
+
     def test_stage_screen_ta_writes_expected_tracks(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             resolved = load_resolved_config(
