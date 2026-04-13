@@ -13,6 +13,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime
 from difflib import SequenceMatcher
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 from urllib.parse import urlparse
@@ -31,6 +32,7 @@ from models import (
 from protocol import (
     NEGATIVE_EXCLUSION_TERMS,
     build_screening_text,
+    compile_terms_to_regex,
     compile_group_regex,
     compile_negative_regex,
     evaluate_protocol,
@@ -779,6 +781,12 @@ def _topic_classifier_terms(ctx: PipelineContext, key: str, fallback: Sequence[s
     return cleaned or list(fallback)
 
 
+def _topic_classifier_title_rescue_rules(ctx: PipelineContext) -> list[dict[str, Any]]:
+    payload = ctx.topic_profile_payload.get("classifier", {})
+    values = payload.get("title_rescue_rules", [])
+    return [value for value in values if isinstance(value, dict)]
+
+
 def _topic_taxonomy_dimensions(ctx: PipelineContext) -> list[dict[str, Any]]:
     taxonomy = ctx.topic_profile_payload.get("taxonomy", {})
     values = taxonomy.get("dimensions", [])
@@ -965,16 +973,81 @@ def _basic_screening_text(work: Mapping[str, Any]) -> str:
     return build_screening_text(work)
 
 
+@lru_cache(maxsize=1024)
+def _compiled_term_patterns(terms: tuple[str, ...]) -> tuple[re.Pattern[str], ...]:
+    return tuple(compile_terms_to_regex(list(terms)))
+
+
 def _term_hits(text: str, terms: Sequence[str]) -> list[str]:
-    lowered = text.lower()
+    normalized_text = re.sub(r"[\u2010-\u2015]", "-", text.lower())
     hits: list[str] = []
-    for term in terms:
-        pattern = re.escape(term.lower())
-        if "*" in pattern:
-            pattern = pattern.replace("\\*", r"\w*")
-        if re.search(pattern, lowered):
+    normalized_terms = tuple(str(term).strip() for term in terms if str(term).strip())
+    for term, pattern in zip(normalized_terms, _compiled_term_patterns(normalized_terms)):
+        if pattern.search(normalized_text):
             hits.append(term)
     return unique_preserve_order(hits)
+
+
+def _split_query_pack_ids(row: Mapping[str, Any]) -> set[str]:
+    raw = str(row.get("query_pack_ids") or "")
+    if not raw:
+        return set()
+    return {part.strip() for part in raw.split(";") if part.strip()}
+
+
+def _title_rescue_match(
+    ctx: PipelineContext,
+    row: Mapping[str, Any],
+    *,
+    title: str,
+    abstract: str,
+    is_preprint: bool,
+) -> dict[str, Any] | None:
+    title_only = title.strip()
+    if not title_only:
+        return None
+    query_pack_ids = _split_query_pack_ids(row)
+    for rule in _topic_classifier_title_rescue_rules(ctx):
+        if rule.get("only_when_abstract_missing", False) and abstract.strip():
+            continue
+        allowed_pack_ids = {
+            str(value).strip()
+            for value in rule.get("match_query_pack_ids", [])
+            if str(value).strip()
+        }
+        if allowed_pack_ids and not (allowed_pack_ids & query_pack_ids):
+            continue
+        required_groups = rule.get("require_title_groups", {})
+        if not isinstance(required_groups, dict):
+            continue
+        matched_terms: dict[str, list[str]] = {}
+        all_groups_matched = True
+        for group_name, terms in required_groups.items():
+            if not isinstance(terms, (list, tuple)):
+                all_groups_matched = False
+                break
+            hits = _term_hits(title_only, [str(term).strip() for term in terms if str(term).strip()])
+            if not hits:
+                all_groups_matched = False
+                break
+            matched_terms[str(group_name)] = hits
+        if not all_groups_matched:
+            continue
+        decision_key = "preprint_decision" if is_preprint else "archival_decision"
+        decision = str(rule.get(decision_key) or ("preprint_watchlist" if is_preprint else "include")).strip()
+        if not decision:
+            continue
+        try:
+            confidence = float(rule.get("confidence", 0.82))
+        except (TypeError, ValueError):
+            confidence = 0.82
+        return {
+            "rule_id": str(rule.get("id") or "title_rescue"),
+            "decision": decision,
+            "confidence": confidence,
+            "matched_terms": matched_terms,
+        }
+    return None
 
 
 def _candidate_spans(text: str, terms: Sequence[str], *, limit: int = 3) -> list[str]:
@@ -1627,6 +1700,13 @@ def _topic_classifier(ctx: PipelineContext, row: Mapping[str, Any]) -> dict[str,
     }
 
     is_preprint = str(row.get("type") or "") == "preprint" or str(row.get("archival_status") or "") == "preprint_watchlist"
+    title_rescue = _title_rescue_match(
+        ctx,
+        row,
+        title=title,
+        abstract=abstract,
+        is_preprint=is_preprint,
+    )
     decision = "exclude"
     confidence = 0.55
     reasons: list[str] = []
@@ -1643,6 +1723,14 @@ def _topic_classifier(ctx: PipelineContext, row: Mapping[str, Any]) -> dict[str,
         decision = "tertiary_background"
         confidence = 0.9 if high_priority_hits else 0.86
         reasons.append(f"tertiary={','.join(tertiary_hits[:4])}")
+    elif title_rescue is not None:
+        decision = str(title_rescue["decision"])
+        confidence = float(title_rescue["confidence"])
+        matched_terms = title_rescue["matched_terms"]
+        context_hits = unique_preserve_order([*context_hits, *matched_terms.get("context", [])])
+        method_hits = unique_preserve_order([*method_hits, *matched_terms.get("method", [])])
+        metric_hits = unique_preserve_order([*metric_hits, *matched_terms.get("metric", [])])
+        reasons.append(f"title_rescue_rule={title_rescue['rule_id']}")
     elif matched_protocol and context_hits and method_hits and metric_hits:
         decision = "preprint_watchlist" if is_preprint else "include"
         confidence = 0.93 if high_priority_hits else 0.86
@@ -1919,6 +2007,46 @@ def _screening_fulltext_defaults(row: Mapping[str, Any]) -> dict[str, Any]:
         "equations_detected": "",
         "figures_detected": "",
     }
+
+
+def _fulltext_candidate_rows(
+    metadata_rows: Sequence[Mapping[str, Any]],
+    screening_ft_rows: Sequence[Mapping[str, Any]],
+    normalized_lookup: Mapping[str, Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    selected: list[dict[str, Any]] = []
+    seen_record_ids: set[str] = set()
+
+    for row in metadata_rows:
+        if row.get("track") != "scholarly_core":
+            continue
+        record_id = str(row.get("record_id") or "")
+        if not record_id or record_id in seen_record_ids:
+            continue
+        selected.append(dict(row))
+        seen_record_ids.add(record_id)
+
+    for row in screening_ft_rows:
+        decision = str(row.get("resolved_decision") or row.get("machine_decision") or "")
+        if decision != "needs_fulltext":
+            continue
+        record_id = str(row.get("record_id") or "")
+        if not record_id or record_id in seen_record_ids:
+            continue
+        openalex_id = str(row.get("openalex_id") or "")
+        normalized = dict(normalized_lookup.get(openalex_id, {}))
+        selected.append(
+            {
+                "record_id": record_id,
+                "openalex_id": openalex_id,
+                "doi": row.get("doi", ""),
+                "title": row.get("title", ""),
+                "track": "needs_fulltext_queue",
+                "best_pdf_url": normalized.get("best_pdf_url", row.get("best_pdf_url", "")),
+            }
+        )
+        seen_record_ids.add(record_id)
+    return selected
 
 
 async def stage_dedup(ctx: PipelineContext) -> None:
@@ -2807,12 +2935,12 @@ async def stage_snowball(ctx: PipelineContext) -> None:
 async def stage_fulltext(ctx: PipelineContext) -> None:
     metadata_rows = read_csv(ctx.config.paths.run_root / "metadata.csv")
     normalized_lookup = _lookup_normalized_row(ctx)
-    rows_to_process = [row for row in metadata_rows if row.get("track") == "scholarly_core"]
+    screening_ft_rows = read_csv(ctx.config.paths.run_root / "screening_fulltext.csv")
+    screening_ft_by_id = {row["record_id"]: row for row in screening_ft_rows if row.get("record_id")}
+    rows_to_process = _fulltext_candidate_rows(metadata_rows, screening_ft_rows, normalized_lookup)
     inventory_rows: list[dict[str, Any]] = []
     pdf_rows: list[dict[str, Any]] = []
     parse_rows: list[dict[str, Any]] = []
-    screening_ft_rows = read_csv(ctx.config.paths.run_root / "screening_fulltext.csv")
-    screening_ft_by_id = {row["record_id"]: row for row in screening_ft_rows if row.get("record_id")}
 
     if not ctx.config.profile.fulltext.enabled:
         for row in rows_to_process:
@@ -2844,6 +2972,22 @@ async def stage_fulltext(ctx: PipelineContext) -> None:
         if isinstance(raw_work, dict) and raw_work:
             works_for_extractor.append(raw_work)
             row_by_id[str(raw_work.get("id") or "")] = row
+            continue
+        inventory_rows.append(
+            {
+                "record_id": row.get("record_id", ""),
+                "openalex_id": row.get("openalex_id", ""),
+                "doi": row.get("doi", ""),
+                "title": row.get("title", ""),
+                "track": row.get("track", ""),
+                "best_pdf_url": row.get("best_pdf_url", ""),
+                "download_attempted": "False",
+                "download_status": "no_raw_work",
+                "pdf_local_path": "",
+                "parse_status": "not_attempted",
+                "extraction_ready": "False",
+            }
+        )
 
     async with PDFSectionExtractor(
         email=ctx.config.contact_email,

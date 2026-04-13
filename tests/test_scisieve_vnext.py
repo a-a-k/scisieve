@@ -15,6 +15,7 @@ from scisieve.cli import build_parser
 from scisieve.config import load_resolved_config
 from scisieve.pipeline import (
     METADATA_COLUMNS,
+    SCREENING_FT_COLUMNS,
     SCREENING_TA_COLUMNS,
     _assert_profile_guards,
     _build_scholarly_filter,
@@ -24,6 +25,7 @@ from scisieve.pipeline import (
     create_context,
     run_pipeline,
     stage_anchor_check,
+    stage_fulltext,
     stage_release,
     stage_screen_ta,
 )
@@ -279,6 +281,42 @@ class VNextClassifierTests(unittest.TestCase):
             result = _topic_classifier(ctx, row)
             self.assertEqual(result["machine_decision"], "include")
 
+    def test_topic_classifier_applies_title_rescue_rule_for_title_only_archival_record(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            resolved = load_resolved_config(
+                config_path=str(REPO_ROOT / "scisieve.yaml"),
+                profile_name="debug",
+                run_root_override=tmp,
+            )
+            ctx = create_context(resolved)
+            classifier_cfg = ctx.topic_profile_payload.setdefault("classifier", {})
+            classifier_cfg["title_rescue_rules"] = [
+                {
+                    "id": "proactive_failure_risk_title",
+                    "only_when_abstract_missing": True,
+                    "match_query_pack_ids": ["pack_proactive_failure_risk"],
+                    "require_title_groups": {
+                        "context": ["cloud"],
+                        "method": ["failure risk", "proactive actions", "risk based"],
+                        "metric": ["reliability"],
+                    },
+                    "archival_decision": "include",
+                    "preprint_decision": "preprint_watchlist",
+                    "confidence": 0.82,
+                }
+            ]
+            row = {
+                "title": "Cloud reliability and efficiency improvement via failure risk based proactive actions",
+                "abstract_text_reconstructed": "",
+                "query_pack_ids": "pack_proactive_failure_risk",
+                "doi": "10.1000/proactive-risk",
+                "type": "article",
+            }
+            result = _topic_classifier(ctx, row)
+            self.assertEqual(result["machine_decision"], "include")
+            self.assertIn("title_rescue_rule=proactive_failure_risk_title", result["machine_reason"])
+            self.assertIn("context=cloud", result["machine_reason"])
+
 
 class VNextStageTests(unittest.TestCase):
     def test_merge_metadata_rows_collapses_same_title_with_different_doi(self) -> None:
@@ -354,6 +392,56 @@ class VNextStageTests(unittest.TestCase):
         self.assertEqual(merged[0]["openalex_id"], "https://openalex.org/W2")
         self.assertIn("pack_alpha", merged[0]["query_pack_ids"])
         self.assertIn("pack_beta", merged[0]["query_pack_ids"])
+
+    def test_stage_fulltext_includes_needs_fulltext_queue_rows_when_profile_disabled(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            resolved = load_resolved_config(
+                config_path=str(REPO_ROOT / "scisieve.yaml"),
+                profile_name="debug",
+                run_root_override=tmp,
+            )
+            ctx = create_context(resolved)
+            (ctx.config.paths.run_root / "metadata.csv").write_text(
+                ",".join(METADATA_COLUMNS) + "\n",
+                encoding="utf-8",
+            )
+            queue_row = {
+                "record_id": "rec_queue_a10",
+                "openalex_id": "https://openalex.org/W3001891115",
+                "doi": "10.1016/j.jss.2020.110524",
+                "title": "Cloud reliability and efficiency improvement via failure risk based proactive actions",
+                "year": "2020",
+                "query_pack_ids": "pack_proactive_failure_risk",
+                "anchor_match_ids": "A10",
+                "negative_sentinel_match": "",
+                "machine_decision": "needs_fulltext",
+                "machine_confidence": "0.75",
+                "machine_reason": "anchor_match=A10",
+                "reviewer1_decision": "",
+                "reviewer1_reason": "",
+                "reviewer2_decision": "",
+                "reviewer2_reason": "",
+                "resolved_decision": "needs_fulltext",
+                "resolved_reason": "",
+                "decision_stage_timestamp": "2026-04-13T00:00:00Z",
+                "notes": "",
+                "pdf_local_path": "",
+                "pdf_parse_status": "not_attempted",
+                "fulltext_sections_seen": "",
+                "equations_detected": "",
+                "figures_detected": "",
+            }
+            with (ctx.config.paths.run_root / "screening_fulltext.csv").open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=SCREENING_FT_COLUMNS)
+                writer.writeheader()
+                writer.writerow(queue_row)
+
+            asyncio.run(stage_fulltext(ctx))
+
+            inventory = (ctx.config.paths.run_root / "fulltext_inventory.csv").read_text(encoding="utf-8")
+            self.assertIn("rec_queue_a10", inventory)
+            self.assertIn("needs_fulltext_queue", inventory)
+            self.assertIn("disabled_by_profile", inventory)
 
     def test_stage_screen_ta_writes_expected_tracks(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
