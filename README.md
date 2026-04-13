@@ -65,8 +65,14 @@ paths:
 
 Recommended ignored locations:
 - `.scisieve_private/`
+- `.scisieve_secrets/`
 - `private_topics/`
 - `private_reference/`
+
+## OpenAlex API Key
+- If present, SciSieve automatically reads an OpenAlex API key from `SCISIEVE_OPENALEX_API_KEY`.
+- As a local file alternative, it also reads `.scisieve_secrets/openalex_api_key.txt`.
+- These secret locations are ignored by git and are not required for public/example runs.
 
 ## Config Files
 - `scisieve.yaml`: default generic config with `debug` and `production` profiles.

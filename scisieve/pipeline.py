@@ -888,13 +888,14 @@ async def _iter_openalex_pages(
     total = 0
     page_index = 0
     while True:
-        params: dict[str, Any] = {
-            "filter": filter_expression,
-            "search": search_query,
-            "per-page": per_page,
-            "cursor": cursor,
-            "mailto": openalex.email,
-        }
+        params = openalex.auth_params(
+            {
+                "filter": filter_expression,
+                "search": search_query,
+                "per-page": per_page,
+                "cursor": cursor,
+            }
+        )
         payload = await openalex._request_json("GET", "/works", params=params)  # noqa: SLF001
         page_results = payload.get("results", [])
         if not isinstance(page_results, list) or not page_results:
@@ -1125,7 +1126,11 @@ async def stage_freeze_scholarly(ctx: PipelineContext) -> None:
 
     persist_progress()
     try:
-        async with OpenAlexClient(email=ctx.config.contact_email, requests_per_second=7.0) as openalex:
+        async with OpenAlexClient(
+            email=ctx.config.contact_email,
+            requests_per_second=7.0,
+            api_key=ctx.config.openalex_api_key,
+        ) as openalex:
             for task in task_rows:
                 if task.get("completed"):
                     continue
@@ -1140,13 +1145,14 @@ async def stage_freeze_scholarly(ctx: PipelineContext) -> None:
                 limit = task.get("limit")
 
                 while cursor:
-                    params: dict[str, Any] = {
-                        "filter": filter_expression,
-                        "search": search_query,
-                        "per-page": ctx.config.profile.scholarly.per_page,
-                        "cursor": cursor,
-                        "mailto": openalex.email,
-                    }
+                    params = openalex.auth_params(
+                        {
+                            "filter": filter_expression,
+                            "search": search_query,
+                            "per-page": ctx.config.profile.scholarly.per_page,
+                            "cursor": cursor,
+                        }
+                    )
                     payload = await openalex._request_json("GET", "/works", params=params)  # noqa: SLF001
                     page_results = payload.get("results", [])
                     if not isinstance(page_results, list) or not page_results:
@@ -1936,7 +1942,11 @@ async def stage_dedup(ctx: PipelineContext) -> None:
         if str(row.get("type") or "") == "preprint"
     ]
     dedup_stats = _deduplicate_tracks(core_candidates, preprint_candidates)
-    async with OpenAlexClient(email=ctx.config.contact_email, requests_per_second=7.0) as openalex:
+    async with OpenAlexClient(
+        email=ctx.config.contact_email,
+        requests_per_second=7.0,
+        api_key=ctx.config.openalex_api_key,
+    ) as openalex:
         resolution_result = await _resolve_preprints_against_core(
             ctx,
             openalex,
@@ -2370,7 +2380,11 @@ async def stage_snowball(ctx: PipelineContext) -> None:
     seed_records: list[dict[str, str]] = []
     discovered_by_doi = {normalize_doi(row.get("doi")): row for row in metadata_rows if normalize_doi(row.get("doi"))}
     async with (
-        OpenAlexClient(email=ctx.config.contact_email, requests_per_second=7.0) as openalex,
+        OpenAlexClient(
+            email=ctx.config.contact_email,
+            requests_per_second=7.0,
+            api_key=ctx.config.openalex_api_key,
+        ) as openalex,
         OpenCitationsClient(email=ctx.config.contact_email, requests_per_second=3.0) as opencitations,
     ):
         for anchor in positive_anchors:
@@ -3219,7 +3233,11 @@ async def stage_anchor_check(ctx: PipelineContext) -> None:
     stage_loss_counter: Counter[str] = Counter()
     failure_rows: list[dict[str, Any]] = []
 
-    async with OpenAlexClient(email=ctx.config.contact_email, requests_per_second=7.0) as openalex:
+    async with OpenAlexClient(
+        email=ctx.config.contact_email,
+        requests_per_second=7.0,
+        api_key=ctx.config.openalex_api_key,
+    ) as openalex:
         for anchor in ctx.anchor_rows:
             anchor_id = anchor.get("anchor_id", "")
             polarity = anchor.get("polarity", "")

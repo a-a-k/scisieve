@@ -25,6 +25,7 @@ SciSieve_public_stage/
 
 # Private topic bundles / local override configs
 .scisieve_private/
+.scisieve_secrets/
 private_topics/
 private_reference/
 scisieve.private.yaml

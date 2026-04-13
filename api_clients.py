@@ -34,11 +34,13 @@ class BaseApiClient:
         *,
         base_url: str,
         email: str,
+        api_key: str = "",
         requests_per_second: float,
         timeout_seconds: float = 45.0,
         max_retries: int = 5,
     ) -> None:
         self.email = email
+        self.api_key = api_key.strip()
         self.max_retries = max_retries
         self._limiter = PoliteRateLimiter(requests_per_second)
         self._client = httpx.AsyncClient(
@@ -136,12 +138,21 @@ class OpenAlexBudgetExceeded(RuntimeError):
 
 
 class OpenAlexClient(BaseApiClient):
-    def __init__(self, *, email: str, requests_per_second: float = 7.0) -> None:
+    def __init__(self, *, email: str, requests_per_second: float = 7.0, api_key: str = "") -> None:
         super().__init__(
             base_url="https://api.openalex.org",
             email=email,
+            api_key=api_key,
             requests_per_second=requests_per_second,
         )
+
+    def auth_params(self, extra: dict[str, Any] | None = None) -> dict[str, Any]:
+        params: dict[str, Any] = {"mailto": self.email}
+        if self.api_key:
+            params["api_key"] = self.api_key
+        if extra:
+            params.update(extra)
+        return params
 
     @staticmethod
     def build_filter(
@@ -176,12 +187,11 @@ class OpenAlexClient(BaseApiClient):
         collected: list[dict[str, Any]] = []
         cursor = "*"
         while True:
-            params: dict[str, Any] = {
+            params = self.auth_params({
                 "filter": filter_expression,
                 "per-page": per_page,
                 "cursor": cursor,
-                "mailto": self.email,
-            }
+            })
             if search_query:
                 params["search"] = search_query
 
@@ -210,11 +220,11 @@ class OpenAlexClient(BaseApiClient):
             elif target.startswith("https://api.openalex.org/works/") or target.startswith("http://api.openalex.org/works/"):
                 normalized = target.rstrip("/").rsplit("/", 1)[-1]
             else:
-                payload = await self._request_json("GET", target, params={"mailto": self.email})
+                payload = await self._request_json("GET", target, params=self.auth_params())
                 return payload if isinstance(payload, dict) else {}
         if normalized.upper().startswith("W") and normalized[1:].isdigit():
             normalized = normalized.upper()
-        payload = await self._request_json("GET", f"/works/{normalized}", params={"mailto": self.email})
+        payload = await self._request_json("GET", f"/works/{normalized}", params=self.auth_params())
         return payload if isinstance(payload, dict) else {}
 
     async def fetch_by_ids(self, ids: Sequence[str], *, max_concurrency: int = 10) -> list[dict[str, Any]]:
@@ -241,7 +251,7 @@ class OpenAlexClient(BaseApiClient):
         collected: list[dict[str, Any]] = []
         cursor = "*"
         while True:
-            params = {"mailto": self.email, "per-page": per_page, "cursor": cursor}
+            params = self.auth_params({"per-page": per_page, "cursor": cursor})
             payload = await self._request_json("GET", cited_by_api_url, params=params)
             results = payload.get("results", [])
             if not isinstance(results, list) or not results:

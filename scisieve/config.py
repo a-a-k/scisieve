@@ -13,6 +13,8 @@ PROFILE_ALIASES = {
     "csur": "production",
 }
 
+DEFAULT_OPENALEX_API_KEY_PATH = ".scisieve_secrets/openalex_api_key.txt"
+
 
 class CitationAuthor(BaseModel):
     name: str
@@ -122,6 +124,7 @@ class ResolvedConfig:
     repo_root: Path
     paths: ResolvedPaths
     contact_email: str
+    openalex_api_key: str
     resolved_end_date: str
     run_timestamp_utc: str
     run_id: str
@@ -135,6 +138,23 @@ def _resolve_path(base_dir: Path, raw_value: str | None) -> Path | None:
     if path.is_absolute():
         return path
     return (base_dir / path).resolve()
+
+
+def _load_secret_text(path: Path | None) -> str:
+    if path is None or not path.exists():
+        return ""
+    return path.read_text(encoding="utf-8").strip()
+
+
+def _resolve_openalex_api_key(repo_root: Path) -> str:
+    direct_value = os.environ.get("SCISIEVE_OPENALEX_API_KEY", "").strip()
+    if direct_value:
+        return direct_value
+    file_override = _resolve_path(repo_root, os.environ.get("SCISIEVE_OPENALEX_API_KEY_FILE"))
+    from_file = _load_secret_text(file_override)
+    if from_file:
+        return from_file
+    return _load_secret_text(_resolve_path(repo_root, DEFAULT_OPENALEX_API_KEY_PATH))
 
 
 def load_resolved_config(
@@ -189,6 +209,7 @@ def load_resolved_config(
         repo_root=repo_root,
         paths=paths,
         contact_email=email_override or app.contact_email,
+        openalex_api_key=_resolve_openalex_api_key(repo_root),
         resolved_end_date=resolved_end_date,
         run_timestamp_utc=run_timestamp_utc,
         run_id=run_id,

@@ -50,14 +50,30 @@ class VNextConfigTests(unittest.TestCase):
 
     def test_load_resolved_config_uses_override_run_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
+            temp_root = Path(tmp)
+            config_path = temp_root / "scisieve.yaml"
+            config_text = (REPO_ROOT / "scisieve.yaml").read_text(encoding="utf-8")
+            for name in (
+                "query_packs.yaml",
+                "gray_registry.yaml",
+                "topic_profile.yaml",
+                "anchor_benchmark.csv",
+                "baseline_metadata.csv",
+            ):
+                config_text = config_text.replace(
+                    f"examples/example_topic/{name}",
+                    str((REPO_ROOT / "examples" / "example_topic" / name).resolve()).replace("\\", "/"),
+                )
+            config_path.write_text(config_text, encoding="utf-8")
             resolved = load_resolved_config(
-                config_path=str(REPO_ROOT / "scisieve.yaml"),
+                config_path=str(config_path),
                 profile_name="debug",
                 run_root_override=tmp,
             )
             self.assertEqual(resolved.paths.run_root, Path(tmp).resolve())
             self.assertTrue(resolved.resolved_end_date)
             self.assertTrue(resolved.paths.topic_profile_path.exists())
+            self.assertEqual(resolved.openalex_api_key, "")
 
     def test_load_resolved_config_expands_env_var_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -123,6 +139,21 @@ class VNextConfigTests(unittest.TestCase):
             self.assertIn("type:article|proceedings-article", filter_expression)
             self.assertNotIn("preprint", filter_expression)
 
+    def test_load_resolved_config_reads_default_openalex_api_key_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            temp_root = Path(tmp)
+            config_path = temp_root / "scisieve.yaml"
+            config_path.write_text((REPO_ROOT / "scisieve.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+            secret_dir = temp_root / ".scisieve_secrets"
+            secret_dir.mkdir(parents=True, exist_ok=True)
+            (secret_dir / "openalex_api_key.txt").write_text("secret-from-file\n", encoding="utf-8")
+            resolved = load_resolved_config(
+                config_path=str(config_path),
+                profile_name="debug",
+                run_root_override=tmp,
+            )
+            self.assertEqual(resolved.openalex_api_key, "secret-from-file")
+
 
 class ApiClientTests(unittest.TestCase):
     def test_opencitations_pid_parsing(self) -> None:
@@ -159,6 +190,14 @@ class ApiClientTests(unittest.TestCase):
         self.assertEqual(caught.exception.request_cost_usd, "0.001")
         self.assertEqual(caught.exception.remaining_budget_usd, "0")
         self.assertTrue(caught.exception.reset_at_utc)
+        asyncio.run(client.close())
+
+    def test_openalex_auth_params_include_api_key_when_present(self) -> None:
+        client = OpenAlexClient(email="review@example.org", api_key="secret-key")
+        params = client.auth_params({"per-page": 1})
+        self.assertEqual(params["mailto"], "review@example.org")
+        self.assertEqual(params["api_key"], "secret-key")
+        self.assertEqual(params["per-page"], 1)
         asyncio.run(client.close())
 
 
