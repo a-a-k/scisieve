@@ -117,6 +117,17 @@ Practical interpretation:
 - As a local file alternative, it also reads `.scisieve_secrets/openalex_api_key.txt`.
 - These secret locations are ignored by git and are not required for public/example runs.
 
+## GitHub Packages
+SciSieve uses two distribution channels:
+- Python source and wheel artifacts are attached to GitHub Releases.
+- A runnable container image is published to GitHub Packages via GHCR.
+
+Example:
+```bash
+docker pull ghcr.io/a-a-k/scisieve:1.0.2
+docker run --rm ghcr.io/a-a-k/scisieve:1.0.2 --help
+```
+
 ## Config Files
 - `scisieve.yaml`: default generic config with `debug` and `production` profiles.
 - `examples/example_topic/topic_profile.yaml`: example screening terms, classifier cues, taxonomy labels, and extraction hints.

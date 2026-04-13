@@ -1,0 +1,15 @@
+.git
+.github
+.scisieve_runs
+.scisieve_private
+.scisieve_secrets
+.tmp_pkgcheck
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+dist
+build
+scisieve.egg-info
+tests
