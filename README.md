@@ -69,6 +69,49 @@ Recommended ignored locations:
 - `private_topics/`
 - `private_reference/`
 
+## Mandatory Preflight: Anchor Validation
+Do not start a real review, evidence extraction, or manuscript-facing analysis until anchor validation passes for the topic bundle you plan to use. This is the minimum acceptance gate for a usable retrieval/screening configuration.
+
+Why this matters:
+- A green test suite only proves that the software runs; it does not prove that your topic bundle can actually find the papers that define the review scope.
+- Query packs, screening terms, snowballing, and rescue rules can all drift recall and precision.
+- If anchor validation is weak, the rest of the review will be biased from the start and later manual work will not fix that reliably.
+
+Minimum validation inputs:
+- `anchor_benchmark.csv` with positive anchors that must be found for the topic.
+- At least one critical tier of anchors, typically `Tier A`, for must-find papers.
+- Optional `Tier B` anchors for stretch/secondary coverage.
+- Negative sentinels that must never leak into `scholarly_core`.
+
+Recommended validation process:
+1. Build or update the private topic bundle first:
+   `query_packs.yaml`, `topic_profile.yaml`, `gray_registry.yaml`, `anchor_benchmark.csv`.
+2. Run a debug validation cycle on the exact same bundle you intend to use for research:
+```bash
+python -m scisieve run --config scisieve.private.yaml --profile debug --run-root .scisieve_runs\live_debug
+```
+3. Inspect the validation artifacts before doing anything else:
+   - `coverage_report.md`
+   - `coverage_anchor_results.csv`
+   - `coverage_failures.csv`
+   - `negative_sentinel_report.csv`
+   - `top_missing_anchors_by_pack.csv`
+   - `screening_title_abstract.csv`
+   - `snowball_included.csv`
+   - `snowball_excluded.csv`
+4. Tune the bundle and rerun until the benchmark is stable.
+
+Minimum acceptance criteria before research starts:
+- `Tier A` coverage must be `100%` on the chosen validation benchmark.
+- `Negative sentinels in core` must be `0`.
+- `Coverage failures` should be `0` for the benchmark you treat as mandatory.
+- If you track a stricter corpus-readiness metric, anchors expected to be included should also land in `scholarly_core` or `preprint_watchlist`, not just be retrieved.
+
+Practical interpretation:
+- Passing `anchor-check` is not a nice-to-have report. It is the required proof that the current topic bundle is fit for research use.
+- If anchor validation fails, fix the bundle first. Do not proceed to extraction, quality appraisal, or release packaging.
+- Validation should be rerun after material changes to query packs, screening rules, snowballing logic, or benchmark sets.
+
 ## OpenAlex API Key
 - If present, SciSieve automatically reads an OpenAlex API key from `SCISIEVE_OPENALEX_API_KEY`.
 - As a local file alternative, it also reads `.scisieve_secrets/openalex_api_key.txt`.
