@@ -10,6 +10,11 @@ from typing import Any, Sequence
 
 import httpx
 
+try:
+    from scisieve import __version__ as SCISIEVE_VERSION
+except Exception:
+    SCISIEVE_VERSION = "dev"
+
 
 class PoliteRateLimiter:
     def __init__(self, requests_per_second: float) -> None:
@@ -48,7 +53,7 @@ class BaseApiClient:
             timeout=timeout_seconds,
             follow_redirects=True,
             headers={
-                "User-Agent": f"SciSieve-MLR/1.1.0 (mailto:{email})",
+                "User-Agent": f"SciSieve-MLR/{SCISIEVE_VERSION} (mailto:{email})",
                 "Accept": "application/json",
             },
         )
@@ -155,6 +160,10 @@ class OpenAlexClient(BaseApiClient):
         return params
 
     @staticmethod
+    def clamp_per_page(per_page: int) -> int:
+        return max(1, min(int(per_page), 100))
+
+    @staticmethod
     def build_filter(
         *,
         types: Sequence[str],
@@ -181,15 +190,16 @@ class OpenAlexClient(BaseApiClient):
         *,
         filter_expression: str,
         search_query: str | None = None,
-        per_page: int = 200,
+        per_page: int = 100,
         max_records: int | None = None,
     ) -> list[dict[str, Any]]:
         collected: list[dict[str, Any]] = []
         cursor = "*"
+        page_size = self.clamp_per_page(per_page)
         while True:
             params = self.auth_params({
                 "filter": filter_expression,
-                "per-page": per_page,
+                "per_page": page_size,
                 "cursor": cursor,
             })
             if search_query:
@@ -245,13 +255,14 @@ class OpenAlexClient(BaseApiClient):
         self,
         cited_by_api_url: str,
         *,
-        per_page: int = 200,
+        per_page: int = 100,
         max_records: int | None = None,
     ) -> list[dict[str, Any]]:
         collected: list[dict[str, Any]] = []
         cursor = "*"
+        page_size = self.clamp_per_page(per_page)
         while True:
-            params = self.auth_params({"per-page": per_page, "cursor": cursor})
+            params = self.auth_params({"per_page": page_size, "cursor": cursor})
             payload = await self._request_json("GET", cited_by_api_url, params=params)
             results = payload.get("results", [])
             if not isinstance(results, list) or not results:

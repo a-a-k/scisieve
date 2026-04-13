@@ -26,7 +26,7 @@ profiles:
     scholarly:
       start_date: "2010-01-01"
       end_date: ""
-      per_page: 200
+      per_page: 100
       max_records_per_pack: 40
       max_preprints_per_pack: 20
       resolve_preprints: true
@@ -38,7 +38,7 @@ profiles:
     scholarly:
       start_date: "2010-01-01"
       end_date: ""
-      per_page: 200
+      per_page: 100
       max_records_per_pack:
       max_preprints_per_pack:
       resolve_preprints: true

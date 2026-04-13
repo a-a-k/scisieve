@@ -893,6 +893,7 @@ async def _iter_openalex_pages(
 ) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     cursor = "*"
+    page_size = OpenAlexClient.clamp_per_page(per_page)
     total = 0
     page_index = 0
     while True:
@@ -900,7 +901,7 @@ async def _iter_openalex_pages(
             {
                 "filter": filter_expression,
                 "search": search_query,
-                "per-page": per_page,
+                "per_page": page_size,
                 "cursor": cursor,
             }
         )
@@ -1218,11 +1219,12 @@ async def stage_freeze_scholarly(ctx: PipelineContext) -> None:
                 limit = task.get("limit")
 
                 while cursor:
+                    page_size = OpenAlexClient.clamp_per_page(ctx.config.profile.scholarly.per_page)
                     params = openalex.auth_params(
                         {
                             "filter": filter_expression,
                             "search": search_query,
-                            "per-page": ctx.config.profile.scholarly.per_page,
+                            "per_page": page_size,
                             "cursor": cursor,
                         }
                     )

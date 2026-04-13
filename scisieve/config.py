@@ -39,7 +39,7 @@ class PathsConfig(BaseModel):
 class ScholarlyProfile(BaseModel):
     start_date: str = "2010-01-01"
     end_date: str = ""
-    per_page: int = 200
+    per_page: int = 100
     max_records_per_pack: int | None = None
     max_preprints_per_pack: int | None = None
     resolve_preprints: bool = True

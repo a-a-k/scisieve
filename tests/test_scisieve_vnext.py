@@ -196,10 +196,11 @@ class ApiClientTests(unittest.TestCase):
 
     def test_openalex_auth_params_include_api_key_when_present(self) -> None:
         client = OpenAlexClient(email="review@example.org", api_key="secret-key")
-        params = client.auth_params({"per-page": 1})
+        params = client.auth_params({"per_page": 1})
         self.assertEqual(params["mailto"], "review@example.org")
         self.assertEqual(params["api_key"], "secret-key")
-        self.assertEqual(params["per-page"], 1)
+        self.assertEqual(params["per_page"], 1)
+        self.assertEqual(OpenAlexClient.clamp_per_page(200), 100)
         asyncio.run(client.close())
 
 
