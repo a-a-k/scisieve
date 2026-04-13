@@ -11,6 +11,7 @@ import subprocess
 import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass
+from datetime import date, datetime
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -19,19 +20,16 @@ from urllib.parse import urlparse
 import httpx
 import yaml
 
-import main as legacy_main
 from api_clients import OpenAlexBudgetExceeded, OpenAlexClient, OpenCitationsClient
-from extractor import PDFSectionExtractor
+from extractor import PDFSectionExtractor, best_pdf_url_from_work
 from models import (
-    CloudContext,
     ResearchWork,
-    ResilienceParadigm,
     infer_topic_labels,
     normalize_doi,
+    reconstruct_abstract,
 )
 from protocol import (
     NEGATIVE_EXCLUSION_TERMS,
-    TERM_GROUPS,
     build_screening_text,
     compile_group_regex,
     compile_negative_regex,
@@ -140,8 +138,7 @@ METADATA_COLUMNS = [
     "label_primary_value",
     "label_secondary_dimension",
     "label_secondary_value",
-    "resilience_paradigm",
-    "cloud_context",
+    "topic_labels_json",
     "machine_decision",
     "machine_confidence",
     "machine_reason",
@@ -218,16 +215,10 @@ EVIDENCE_COLUMNS = [
     "label_primary_value",
     "label_secondary_dimension",
     "label_secondary_value",
-    "primary_paradigm",
-    "secondary_paradigms",
-    "cloud_context",
-    "uses_kubernetes",
-    "uses_managed_services",
-    "multi_region",
-    "edge_cloud",
-    "system_model_summary",
-    "disturbance_model_summary",
-    "estimator_summary",
+    "topic_labels_json",
+    "system_summary",
+    "disturbance_summary",
+    "method_summary",
     "workload_summary",
     "disturbance_type",
     "disturbance_locus",
@@ -379,93 +370,54 @@ PRISMA_STAGE_ORDER = [
 ]
 
 HIGH_PRIORITY_CUES = [
-    "availability modeling",
-    "dependability modeling",
+    "formal analysis",
+    "model checking",
     "probabilistic model checking",
-    "markov",
-    "queueing",
-    "stochastic petri net",
-    "chaos engineering",
     "fault injection",
-    "testing framework",
-    "resilience assessment",
-    "resilience profiling",
+    "controlled experiment",
+    "evaluation framework",
+    "reliability assessment",
+    "continuity assessment",
+    "risk assessment",
     "failure prediction",
-    "proactive actions",
     "fault diagnosis",
-    "digital twin",
+    "degradation analysis",
     "simulation",
     "simulator",
-    "cloudsim",
-    "failover",
-    "disaster recovery",
-    "rpo",
-    "rto",
-    "kubernetes api server",
-    "scheduler",
-    "etcd",
-    "blast radius",
-    "graceful degradation",
-    "slo",
-    "sla",
-    "incident prediction",
-    "failure management",
-    "aiops",
+    "benchmark",
+    "case study",
 ]
 OUT_OF_SCOPE_PATTERNS = [
-    "healthcare",
-    "wearable",
-    "internet of things",
-    "iot",
-    "logistics",
-    "transport",
-    "remote sensing",
-    "uav",
-    "manufacturing",
-    "smart grid",
-    "blockchain",
-    "passenger",
-    "fare ticketing",
+    "retail",
+    "classroom",
+    "curriculum",
+    "agriculture",
+    "flood model",
 ]
 METRIC_TERMS = [
-    "availability",
     "reliability",
-    "dependability",
-    "resilience",
+    "robustness",
+    "continuity",
+    "availability",
     "recovery",
     "risk",
-    "rpo",
-    "rto",
-    "mttr",
-    "blast radius",
-    "sla",
-    "slo",
     "degradation",
-    "outage",
+    "failure",
 ]
 METHOD_TERMS = [
-    "model",
+    "formal analysis",
+    "model checking",
     "simulation",
     "simulator",
-    "resilience assessment",
-    "profiling",
-    "testing framework",
-    "digital twin",
-    "formal verification",
-    "model checking",
+    "experiment",
+    "benchmark",
     "fault injection",
     "fault diagnosis",
     "failure prediction",
-    "proactive actions",
-    "chaos engineering",
     "machine learning",
     "deep learning",
     "reinforcement learning",
-    "markov",
-    "queueing",
-    "stochastic petri net",
-    "estimator",
-    "cloudsim",
+    "analytical model",
 ]
 TERTIARY_TERMS = [
     "survey",
@@ -474,8 +426,6 @@ TERTIARY_TERMS = [
     "mapping study",
     "multivocal literature review",
 ]
-MANAGED_SERVICE_TERMS = ["aws", "azure", "gcp", "google cloud", "managed service"]
-MULTI_REGION_TERMS = ["multi-region", "cross-region", "availability zone", "failover", "disaster recovery"]
 
 
 @dataclass
@@ -487,6 +437,172 @@ class PipelineContext:
     anchor_rows: list[dict[str, Any]]
     compiled_groups: Mapping[str, Sequence[re.Pattern[str]]]
     compiled_exclusions: Sequence[re.Pattern[str]]
+
+
+@dataclass
+class DedupStats:
+    core_works: list[ResearchWork]
+    watchlist_works: list[ResearchWork]
+    core_duplicates_removed_by_doi_or_title: int
+    preprint_duplicates_removed_by_doi_or_title: int
+    preprint_duplicates_removed_against_core: int
+
+
+@dataclass
+class ResolutionResult:
+    core_works: list[ResearchWork]
+    watchlist_works: list[ResearchWork]
+    resolution_rows: list[dict[str, Any]]
+    match_candidate_rows: list[dict[str, Any]]
+    resolved_to_existing_core: int
+    resolved_to_new_archival: int
+
+
+def _is_archival_work_type(work_type: str | None) -> bool:
+    return str(work_type or "").strip().lower() in {"article", "proceedings-article"}
+
+
+def _is_archival_work(work: Mapping[str, Any] | ResearchWork) -> bool:
+    if isinstance(work, ResearchWork):
+        return _is_archival_work_type(work.work_type)
+    return _is_archival_work_type(str(work.get("type") or ""))
+
+
+def _abstract_richness(work: ResearchWork) -> int:
+    return len((work.abstract or "").split())
+
+
+def _date_sort_key(work: ResearchWork) -> int:
+    if work.publication_date:
+        try:
+            return datetime.fromisoformat(work.publication_date).date().toordinal()
+        except ValueError:
+            pass
+    if isinstance(work.publication_year, int):
+        try:
+            return date(work.publication_year, 1, 1).toordinal()
+        except ValueError:
+            pass
+    return 0
+
+
+def _choose_preferred_work(left: ResearchWork, right: ResearchWork) -> ResearchWork:
+    def ranking(work: ResearchWork) -> tuple[int, int, int, int]:
+        if _is_archival_work(work):
+            archival_rank = 1 if work.resolved_from_preprint else 2
+        else:
+            archival_rank = 0
+        return (
+            archival_rank,
+            _abstract_richness(work),
+            int(work.cited_by_count or 0),
+            _date_sort_key(work),
+        )
+
+    left_rank = ranking(left)
+    right_rank = ranking(right)
+    if left_rank > right_rank:
+        return left
+    if right_rank > left_rank:
+        return right
+    left_id = (left.openalex_id or "").lower()
+    right_id = (right.openalex_id or "").lower()
+    return left if left_id <= right_id else right
+
+
+def _canonical_keys(work: ResearchWork) -> list[tuple[str, str]]:
+    keys: list[tuple[str, str]] = []
+    if work.doi:
+        keys.append(("doi", work.doi))
+    title_key = normalize_title(work.title)
+    if title_key:
+        keys.append(("title", title_key))
+    return keys
+
+
+def _build_canonical_index(works: Sequence[ResearchWork]) -> dict[tuple[str, str], ResearchWork]:
+    index: dict[tuple[str, str], ResearchWork] = {}
+    for work in works:
+        for key in _canonical_keys(work):
+            existing = index.get(key)
+            index[key] = work if existing is None else _choose_preferred_work(existing, work)
+    return index
+
+
+def _find_matching_work(work: ResearchWork, index: Mapping[tuple[str, str], ResearchWork]) -> ResearchWork | None:
+    for key in _canonical_keys(work):
+        existing = index.get(key)
+        if existing is not None:
+            return existing
+    return None
+
+
+def _deduplicate_works(works: Sequence[ResearchWork]) -> tuple[list[ResearchWork], int]:
+    by_doi: dict[str, ResearchWork] = {}
+    ordered_dois: list[str] = []
+    without_doi: list[ResearchWork] = []
+    removed_by_doi = 0
+
+    for work in works:
+        if work.doi:
+            existing = by_doi.get(work.doi)
+            if existing is None:
+                by_doi[work.doi] = work
+                ordered_dois.append(work.doi)
+            else:
+                by_doi[work.doi] = _choose_preferred_work(existing, work)
+                removed_by_doi += 1
+            continue
+        without_doi.append(work)
+
+    after_doi = [by_doi[doi] for doi in ordered_dois] + without_doi
+
+    by_title: dict[str, ResearchWork] = {}
+    ordered_titles: list[str] = []
+    without_title: list[ResearchWork] = []
+    removed_by_title = 0
+
+    for work in after_doi:
+        title_key = normalize_title(work.title)
+        if not title_key:
+            without_title.append(work)
+            continue
+        existing = by_title.get(title_key)
+        if existing is None:
+            by_title[title_key] = work
+            ordered_titles.append(title_key)
+        else:
+            by_title[title_key] = _choose_preferred_work(existing, work)
+            removed_by_title += 1
+
+    deduped = [by_title[title_key] for title_key in ordered_titles] + without_title
+    return deduped, removed_by_doi + removed_by_title
+
+
+def _deduplicate_tracks(core_items: Sequence[ResearchWork], watchlist_items: Sequence[ResearchWork]) -> DedupStats:
+    core_deduped, core_removed = _deduplicate_works(core_items)
+    watchlist_deduped, watchlist_removed = _deduplicate_works(watchlist_items)
+
+    core_index = _build_canonical_index(core_deduped)
+    filtered_watchlist: list[ResearchWork] = []
+    removed_against_core = 0
+    for watch in watchlist_deduped:
+        matched = _find_matching_work(watch, core_index)
+        if matched is not None:
+            watch.replaced_by_doi = matched.doi
+            watch.matched_archival_id = matched.openalex_id
+            watch.matched_archival_doi = matched.doi
+            removed_against_core += 1
+            continue
+        filtered_watchlist.append(watch)
+
+    return DedupStats(
+        core_works=core_deduped,
+        watchlist_works=filtered_watchlist,
+        core_duplicates_removed_by_doi_or_title=core_removed,
+        preprint_duplicates_removed_by_doi_or_title=watchlist_removed,
+        preprint_duplicates_removed_against_core=removed_against_core,
+    )
 
 
 def _git_hash() -> str:
@@ -639,6 +755,14 @@ def _topic_term_groups(ctx: PipelineContext) -> dict[str, list[str]]:
     return screening_term_groups(ctx.topic_profile_payload)
 
 
+def _topic_group_terms(ctx: PipelineContext, *preferred_names: str) -> list[str]:
+    groups = _topic_term_groups(ctx)
+    collected: list[str] = []
+    for name in preferred_names:
+        collected.extend(groups.get(name, []))
+    return unique_preserve_order(term for term in collected if term)
+
+
 def _pack_negative_exclusions(ctx: PipelineContext) -> list[str]:
     base_terms = negative_exclusion_terms(ctx.topic_profile_payload)
     values = ctx.query_pack_payload.get("negative_exclusions", [])
@@ -676,17 +800,16 @@ def _topic_label_fields(ctx: PipelineContext, labels: Mapping[str, str]) -> dict
     dimension_names = [str(item.get("name") or "") for item in dimensions if str(item.get("name") or "")]
     primary_dimension = str(metadata_cfg.get("primary_dimension") or (dimension_names[0] if dimension_names else ""))
     secondary_dimension = str(metadata_cfg.get("secondary_dimension") or (dimension_names[1] if len(dimension_names) > 1 else ""))
-    legacy_field_map = metadata_cfg.get("legacy_field_map", {})
     fields = {
         "label_primary_dimension": primary_dimension,
         "label_primary_value": labels.get(primary_dimension, "") if primary_dimension else "",
         "label_secondary_dimension": secondary_dimension,
         "label_secondary_value": labels.get(secondary_dimension, "") if secondary_dimension else "",
-        "resilience_paradigm": "",
-        "cloud_context": "",
+        "topic_labels_json": stable_json_dumps(dict(sorted(labels.items()))),
     }
-    if isinstance(legacy_field_map, dict):
-        for field_name, dimension_name in legacy_field_map.items():
+    compatibility_field_map = metadata_cfg.get("compatibility_field_map", metadata_cfg.get("legacy_field_map", {}))
+    if isinstance(compatibility_field_map, dict):
+        for field_name, dimension_name in compatibility_field_map.items():
             dimension_key = str(dimension_name or "").strip()
             fields[str(field_name)] = labels.get(dimension_key, "") if dimension_key else ""
     return fields
@@ -1259,11 +1382,209 @@ def _row_to_research_work(ctx: PipelineContext, row: Mapping[str, Any], *, sourc
         label_primary_value=label_fields["label_primary_value"] or None,
         label_secondary_dimension=label_fields["label_secondary_dimension"] or None,
         label_secondary_value=label_fields["label_secondary_value"] or None,
-        resilience_paradigm=ResilienceParadigm(label_fields.get("resilience_paradigm") or ResilienceParadigm.UNKNOWN.value),
-        cloud_context=CloudContext(label_fields.get("cloud_context") or CloudContext.UNKNOWN.value),
+        topic_labels_json=label_fields.get("topic_labels_json") or None,
         cited_by_count=int(row.get("cited_by_count") or 0) or None,
         best_pdf_url=str(row.get("best_pdf_url") or "") or None,
         abstract=str(row.get("abstract_text_reconstructed") or "") or None,
+    )
+
+
+def _raw_work_to_research_work(
+    ctx: PipelineContext,
+    work: Mapping[str, Any],
+    *,
+    source: str,
+    track: str,
+    resolved_from_preprint: bool = False,
+) -> ResearchWork:
+    screening_text = build_screening_text(work)
+    topic_labels = _topic_label_assignments(ctx, screening_text)
+    label_fields = _topic_label_fields(ctx, topic_labels)
+    return ResearchWork(
+        source=source,
+        openalex_id=str(work.get("id") or "") or None,
+        title=str(work.get("title") or ""),
+        doi=normalize_doi(work.get("doi")),
+        type=str(work.get("type") or ""),
+        publication_date=str(work.get("publication_date") or "") or None,
+        publication_year=int(work.get("publication_year") or 0) or None,
+        track=track,
+        archival_status="archival" if _is_archival_work(work) else "preprint_watchlist",
+        is_in_core_corpus=track == "core",
+        is_watchlist_candidate=track == "preprint_watchlist",
+        watchlist_tag="Candidate for Preprint Watchlist (trends-only)" if track == "preprint_watchlist" else None,
+        replaced_by_doi=None,
+        matched_archival_id=(str(work.get("id") or "") or None) if resolved_from_preprint else None,
+        matched_archival_doi=normalize_doi(work.get("doi")) if resolved_from_preprint else None,
+        resolved_from_preprint=resolved_from_preprint,
+        label_primary_dimension=label_fields["label_primary_dimension"] or None,
+        label_primary_value=label_fields["label_primary_value"] or None,
+        label_secondary_dimension=label_fields["label_secondary_dimension"] or None,
+        label_secondary_value=label_fields["label_secondary_value"] or None,
+        topic_labels_json=label_fields.get("topic_labels_json") or None,
+        cited_by_count=int(work.get("cited_by_count") or 0) or None,
+        best_pdf_url=best_pdf_url_from_work(work),
+        abstract=reconstruct_abstract(work.get("abstract_inverted_index")),
+    )
+
+
+async def _search_archival_match_by_title(
+    ctx: PipelineContext,
+    openalex: OpenAlexClient,
+    title: str,
+    *,
+    threshold: float,
+) -> tuple[dict[str, Any] | None, float]:
+    title_norm = normalize_title(title)
+    if not title_norm:
+        return None, 0.0
+
+    filter_expression = OpenAlexClient.build_filter(
+        types=["article", "proceedings-article"],
+        start_date=ctx.config.profile.scholarly.start_date,
+        end_date=ctx.config.resolved_end_date,
+        require_doi=False,
+    )
+    candidates = await openalex.fetch_works(
+        filter_expression=filter_expression,
+        search_query=title,
+        per_page=15,
+        max_records=15,
+    )
+
+    best_candidate: dict[str, Any] | None = None
+    best_similarity = 0.0
+    for candidate in candidates:
+        if not _is_archival_work(candidate):
+            continue
+        matched, _reason = evaluate_protocol(
+            build_screening_text(candidate),
+            compiled_groups=ctx.compiled_groups,
+            compiled_exclusions=ctx.compiled_exclusions,
+        )
+        if not matched:
+            continue
+        candidate_norm = normalize_title(str(candidate.get("title") or ""))
+        if not candidate_norm:
+            continue
+        similarity = SequenceMatcher(None, title_norm, candidate_norm).ratio()
+        if similarity > best_similarity:
+            best_similarity = similarity
+            best_candidate = candidate
+
+    if best_candidate is not None and best_similarity >= threshold:
+        return best_candidate, best_similarity
+    return None, 0.0
+
+
+async def _resolve_preprints_against_core(
+    ctx: PipelineContext,
+    openalex: OpenAlexClient,
+    *,
+    core_works: Sequence[ResearchWork],
+    watchlist_works: Sequence[ResearchWork],
+) -> ResolutionResult:
+    core_current = list(core_works)
+    core_index = _build_canonical_index(core_current)
+    unresolved_watchlist: list[ResearchWork] = []
+    resolution_rows: list[dict[str, Any]] = []
+    match_candidate_rows: list[dict[str, Any]] = []
+    resolved_to_existing_core = 0
+    resolved_to_new_archival = 0
+
+    for preprint in watchlist_works:
+        matched_core: ResearchWork | None = None
+        method = ""
+        action = ""
+        similarity = 0.0
+
+        normalized_title = normalize_title(preprint.title)
+        if normalized_title:
+            matched_core = core_index.get(("title", normalized_title))
+        if matched_core is not None:
+            method = "exact_title"
+            action = "matched_existing_core"
+            similarity = 1.0
+            resolved_to_existing_core += 1
+            match_candidate_rows.append(
+                {
+                    "preprint_id": preprint.openalex_id or "",
+                    "preprint_title": preprint.title,
+                    "candidate_openalex_id": matched_core.openalex_id or "",
+                    "candidate_doi": matched_core.doi or "",
+                    "candidate_title": matched_core.title,
+                    "method": method,
+                    "similarity": "1.0000",
+                    "accepted": "true",
+                }
+            )
+        elif ctx.config.profile.scholarly.resolve_preprints and preprint.title.strip():
+            matched_work, similarity = await _search_archival_match_by_title(
+                ctx,
+                openalex,
+                preprint.title,
+                threshold=ctx.config.profile.scholarly.resolve_preprints_threshold,
+            )
+            if matched_work is not None:
+                match_candidate_rows.append(
+                    {
+                        "preprint_id": preprint.openalex_id or "",
+                        "preprint_title": preprint.title,
+                        "candidate_openalex_id": str(matched_work.get("id") or ""),
+                        "candidate_doi": normalize_doi(matched_work.get("doi")) or "",
+                        "candidate_title": str(matched_work.get("title") or ""),
+                        "method": "title_search_openalex",
+                        "similarity": f"{similarity:.4f}",
+                        "accepted": "true",
+                    }
+                )
+                matched_candidate = _raw_work_to_research_work(
+                    ctx,
+                    matched_work,
+                    source="OpenAlex Title Resolution",
+                    track="core",
+                    resolved_from_preprint=True,
+                )
+                existing = _find_matching_work(matched_candidate, core_index)
+                if existing is not None:
+                    matched_core = existing
+                    action = "matched_existing_core"
+                    resolved_to_existing_core += 1
+                else:
+                    matched_core = matched_candidate
+                    core_current.append(matched_candidate)
+                    core_index = _build_canonical_index(core_current)
+                    action = "added_new_archival_core"
+                    resolved_to_new_archival += 1
+                method = "title_search_openalex"
+
+        if matched_core is not None:
+            preprint.replaced_by_doi = matched_core.doi
+            preprint.matched_archival_id = matched_core.openalex_id
+            preprint.matched_archival_doi = matched_core.doi
+            resolution_rows.append(
+                {
+                    "preprint_id": preprint.openalex_id or "",
+                    "preprint_doi": preprint.doi or "",
+                    "preprint_title": preprint.title,
+                    "matched_core_id": matched_core.openalex_id or "",
+                    "matched_core_doi": matched_core.doi or "",
+                    "similarity": f"{similarity:.4f}",
+                    "method": method,
+                    "action": action,
+                }
+            )
+            continue
+
+        unresolved_watchlist.append(preprint)
+
+    return ResolutionResult(
+        core_works=core_current,
+        watchlist_works=unresolved_watchlist,
+        resolution_rows=resolution_rows,
+        match_candidate_rows=match_candidate_rows,
+        resolved_to_existing_core=resolved_to_existing_core,
+        resolved_to_new_archival=resolved_to_new_archival,
     )
 
 
@@ -1271,20 +1592,22 @@ def _topic_classifier(ctx: PipelineContext, row: Mapping[str, Any]) -> dict[str,
     title = str(row.get("title") or "")
     abstract = str(row.get("abstract_text_reconstructed") or row.get("abstract") or "")
     text = " ".join(part for part in (title, abstract) if part).strip()
-    topic_groups = _topic_term_groups(ctx)
+    context_terms = _topic_group_terms(ctx, "context", "system", "platform", "deployment")
+    method_group_terms = _topic_group_terms(ctx, "method", "model_paradigm", "approach")
+    metric_group_terms = _topic_group_terms(ctx, "phenomenon", "construct", "outcome", "objective")
     matched_protocol, protocol_reason = evaluate_protocol(
         text,
         compiled_groups=ctx.compiled_groups,
         compiled_exclusions=ctx.compiled_exclusions,
     )
-    context_hits = _term_hits(text, topic_groups.get("context", []))
+    context_hits = _term_hits(text, context_terms)
     method_hits = _term_hits(
         text,
-        unique_preserve_order([*_topic_classifier_terms(ctx, "method_terms", METHOD_TERMS), *topic_groups.get("model_paradigm", [])]),
+        unique_preserve_order([*_topic_classifier_terms(ctx, "method_terms", METHOD_TERMS), *method_group_terms]),
     )
     metric_hits = _term_hits(
         text,
-        unique_preserve_order([*_topic_classifier_terms(ctx, "metric_terms", METRIC_TERMS), *topic_groups.get("construct", [])]),
+        unique_preserve_order([*_topic_classifier_terms(ctx, "metric_terms", METRIC_TERMS), *metric_group_terms]),
     )
     tertiary_hits = _term_hits(text, _topic_classifier_terms(ctx, "tertiary_terms", TERTIARY_TERMS))
     high_priority_hits = _term_hits(text, _topic_classifier_terms(ctx, "high_priority_cues", HIGH_PRIORITY_CUES))
@@ -1542,73 +1865,16 @@ async def stage_dedup(ctx: PipelineContext) -> None:
         for row in normalized_rows
         if str(row.get("type") or "") == "preprint"
     ]
-    dedup_stats = legacy_main._deduplicate_tracks(core_candidates, preprint_candidates)  # noqa: SLF001
-
-    match_candidate_rows: list[dict[str, Any]] = []
+    dedup_stats = _deduplicate_tracks(core_candidates, preprint_candidates)
     async with OpenAlexClient(email=ctx.config.contact_email, requests_per_second=7.0) as openalex:
-        if ctx.config.profile.scholarly.resolve_preprints:
-            core_index = legacy_main._build_canonical_index(dedup_stats.core_works)  # noqa: SLF001
-            for preprint in dedup_stats.watchlist_works:
-                normalized_title = legacy_main._normalize_title_for_match(preprint.title)  # noqa: SLF001
-                existing = core_index.get(("title", normalized_title)) if normalized_title else None
-                if existing is not None:
-                    match_candidate_rows.append(
-                        {
-                            "preprint_id": preprint.openalex_id or "",
-                            "preprint_title": preprint.title,
-                            "candidate_openalex_id": existing.openalex_id or "",
-                            "candidate_doi": existing.doi or "",
-                            "candidate_title": existing.title,
-                            "method": "exact_title",
-                            "similarity": "1.0000",
-                            "accepted": "true",
-                        }
-                    )
-                else:
-                    matched_work, similarity = await legacy_main._search_archival_match_by_title(  # noqa: SLF001
-                        openalex,
-                        preprint.title,
-                        start_date=ctx.config.profile.scholarly.start_date,
-                        end_date=ctx.config.resolved_end_date,
-                        threshold=ctx.config.profile.scholarly.resolve_preprints_threshold,
-                        compiled_groups=ctx.compiled_groups,
-                        compiled_exclusions=ctx.compiled_exclusions,
-                    )
-                    if matched_work is not None:
-                        match_candidate_rows.append(
-                            {
-                                "preprint_id": preprint.openalex_id or "",
-                                "preprint_title": preprint.title,
-                                "candidate_openalex_id": matched_work.get("id", ""),
-                                "candidate_doi": normalize_doi(matched_work.get("doi")),
-                                "candidate_title": matched_work.get("title", ""),
-                                "method": "title_search_openalex",
-                                "similarity": f"{similarity:.4f}",
-                                "accepted": "true",
-                            }
-                        )
-            resolution_result = await legacy_main._resolve_preprints_against_core(  # noqa: SLF001
-                openalex,
-                core_works=dedup_stats.core_works,
-                watchlist_works=dedup_stats.watchlist_works,
-                raw_by_openalex_id={row.get("openalex_id", ""): row.get("raw_work", {}) for row in normalized_rows},
-                start_date=ctx.config.profile.scholarly.start_date,
-                end_date=ctx.config.resolved_end_date,
-                resolve_preprints=True,
-                similarity_threshold=ctx.config.profile.scholarly.resolve_preprints_threshold,
-                compiled_groups=ctx.compiled_groups,
-                compiled_exclusions=ctx.compiled_exclusions,
-            )
-        else:
-            resolution_result = legacy_main.ResolutionResult(
-                core_works=dedup_stats.core_works,
-                watchlist_works=dedup_stats.watchlist_works,
-                resolution_rows=[],
-                resolved_to_existing_core=0,
-                resolved_to_new_archival=0,
-            )
+        resolution_result = await _resolve_preprints_against_core(
+            ctx,
+            openalex,
+            core_works=dedup_stats.core_works,
+            watchlist_works=dedup_stats.watchlist_works,
+        )
 
-    for row in match_candidate_rows:
+    for row in resolution_result.match_candidate_rows:
         candidate_openalex_id = row["candidate_openalex_id"]
         if candidate_openalex_id and candidate_openalex_id not in row_by_openalex_id:
             matched_rows = [
@@ -1645,7 +1911,7 @@ async def stage_dedup(ctx: PipelineContext) -> None:
     write_csv(ctx.config.paths.run_root / "preprint_resolution.csv", resolution_result.resolution_rows, PREPRINT_RESOLUTION_COLUMNS)
     write_csv(
         ctx.config.paths.run_root / "preprint_match_candidates.csv",
-        match_candidate_rows,
+        resolution_result.match_candidate_rows,
         PREPRINT_MATCH_CANDIDATES_COLUMNS,
     )
 
@@ -1767,8 +2033,7 @@ def stage_screen_ta(ctx: PipelineContext) -> None:
                     "label_primary_value": row.get("label_primary_value", ""),
                     "label_secondary_dimension": row.get("label_secondary_dimension", ""),
                     "label_secondary_value": row.get("label_secondary_value", ""),
-                    "resilience_paradigm": row.get("resilience_paradigm", ""),
-                    "cloud_context": row.get("cloud_context", ""),
+                    "topic_labels_json": row.get("topic_labels_json", ""),
                     "machine_decision": classifier.get("machine_decision", ""),
                     "machine_confidence": classifier.get("machine_confidence", ""),
                     "machine_reason": classifier.get("machine_reason", ""),
@@ -2186,13 +2451,13 @@ async def stage_snowball(ctx: PipelineContext) -> None:
                             _term_hits(
                                 " ".join(
                                     part
-                                    for part in (
-                                        str(candidate.get("title") or ""),
-                                        build_screening_text({"title": "", "abstract_inverted_index": candidate.get("abstract_inverted_index")}),
-                                    )
-                                    if part
-                                ),
-                                TERM_GROUPS["construct"] + TERM_GROUPS["context"] + TERM_GROUPS["model_paradigm"],
+                                for part in (
+                                    str(candidate.get("title") or ""),
+                                    build_screening_text({"title": "", "abstract_inverted_index": candidate.get("abstract_inverted_index")}),
+                                )
+                                if part
+                            ),
+                                flatten_term_groups(_topic_term_groups(ctx)),
                             )
                         )
                     ),
@@ -2276,8 +2541,7 @@ async def stage_snowball(ctx: PipelineContext) -> None:
                             "label_primary_value": snowball_label_fields["label_primary_value"],
                             "label_secondary_dimension": snowball_label_fields["label_secondary_dimension"],
                             "label_secondary_value": snowball_label_fields["label_secondary_value"],
-                            "resilience_paradigm": snowball_label_fields.get("resilience_paradigm") or ResilienceParadigm.UNKNOWN.value,
-                            "cloud_context": snowball_label_fields.get("cloud_context") or CloudContext.UNKNOWN.value,
+                            "topic_labels_json": snowball_label_fields.get("topic_labels_json", ""),
                             "machine_decision": "include",
                             "machine_confidence": classifier["machine_confidence"],
                             "machine_reason": classifier["machine_reason"],
@@ -2494,18 +2758,15 @@ def stage_extract(ctx: PipelineContext) -> None:
         if row.get("track") != "scholarly_core":
             continue
         text = " ".join((row.get("title", ""), row.get("machine_reason", ""))).strip()
-        primary_label = row.get("label_primary_value") or row.get("resilience_paradigm", "")
-        secondary_label = row.get("label_secondary_value") or row.get("cloud_context", CloudContext.UNKNOWN.value)
-        paradigms = unique_preserve_order(
-            value
-            for value in [
-                primary_label,
-                "Chaos" if "chaos engineering" in text.lower() else "",
-                "Simulation" if "simulation" in text.lower() else "",
-                "ML" if "machine learning" in text.lower() or "deep learning" in text.lower() else "",
-            ]
-            if value
-        )
+        primary_label = row.get("label_primary_value", "")
+        secondary_label = row.get("label_secondary_value", "")
+        system_terms = _topic_extraction_hints(ctx, "system_terms", ["system", "service", "platform", "architecture"])
+        disturbance_terms = _topic_extraction_hints(ctx, "disturbance_terms", ["fault", "failure", "outage", "disruption"])
+        method_terms = _topic_extraction_hints(ctx, "method_terms", ["analysis", "simulation", "experiment", "evaluation"])
+        workload_terms = _topic_extraction_hints(ctx, "workload_terms", ["workload", "trace", "request", "traffic"])
+        validation_terms = _topic_extraction_hints(ctx, "validation_terms", ["simulation", "experiment", "case study", "benchmark", "trace"])
+        locus_terms = _topic_extraction_hints(ctx, "disturbance_locus_terms", ["service", "node", "database", "network", "control plane"])
+        scope_terms = _topic_extraction_hints(ctx, "disturbance_scope_terms", ["single component", "cluster", "multi-site", "system-wide"])
         extraction_rows.append(
             {
                 "record_id": row["record_id"],
@@ -2513,24 +2774,28 @@ def stage_extract(ctx: PipelineContext) -> None:
                 "label_primary_value": primary_label,
                 "label_secondary_dimension": row.get("label_secondary_dimension", ""),
                 "label_secondary_value": secondary_label,
-                "primary_paradigm": paradigms[0] if paradigms else primary_label,
-                "secondary_paradigms": ";".join(paradigms[1:]),
-                "cloud_context": secondary_label,
-                "uses_kubernetes": str("k8s" in secondary_label.lower() or "kubernetes" in text.lower()),
-                "uses_managed_services": str(any(term in text.lower() for term in _topic_extraction_hints(ctx, "managed_service_terms", MANAGED_SERVICE_TERMS))),
-                "multi_region": str(any(term in text.lower() for term in _topic_extraction_hints(ctx, "multi_region_terms", MULTI_REGION_TERMS))),
-                "edge_cloud": str("edge" in secondary_label.lower()),
-                "system_model_summary": _extract_summary(text, ["architecture", "microservice", "kubernetes", "system model"]),
-                "disturbance_model_summary": _extract_summary(text, ["fault injection", "chaos engineering", "failure", "disturbance"]),
-                "estimator_summary": _extract_summary(text, ["model checking", "simulation", "machine learning", "markov"]),
-                "workload_summary": _extract_summary(text, ["workload", "trace", "request", "traffic"]),
-                "disturbance_type": ";".join(_term_hits(text, ["fault", "outage", "latency", "node failure", "pod disruption"])),
-                "disturbance_locus": ";".join(_term_hits(text, ["api server", "scheduler", "database", "service", "network"])),
-                "disturbance_scope": ";".join(_term_hits(text, ["single service", "multi-region", "cluster", "control plane"])),
+                "topic_labels_json": row.get("topic_labels_json", ""),
+                "system_summary": _extract_summary(text, system_terms),
+                "disturbance_summary": _extract_summary(text, disturbance_terms),
+                "method_summary": _extract_summary(text, method_terms),
+                "workload_summary": _extract_summary(text, workload_terms),
+                "disturbance_type": ";".join(_term_hits(text, disturbance_terms)),
+                "disturbance_locus": ";".join(_term_hits(text, locus_terms)),
+                "disturbance_scope": ";".join(_term_hits(text, scope_terms)),
                 "correlation_mode": "correlated" if "correlation" in text.lower() else "unspecified",
-                "metrics_reported": ";".join(_term_hits(text, METRIC_TERMS)),
+                "metrics_reported": ";".join(
+                    _term_hits(
+                        text,
+                        unique_preserve_order(
+                            [
+                                *_topic_classifier_terms(ctx, "metric_terms", METRIC_TERMS),
+                                *_topic_group_terms(ctx, "phenomenon", "construct", "outcome", "objective"),
+                            ]
+                        ),
+                    )
+                ),
                 "equations_reported": str(parse_log.get(row["record_id"], {}).get("sections_detected", "").find("E") >= 0),
-                "validation_mode": ";".join(_term_hits(text, ["simulation", "experiment", "case study", "model checking", "trace"])),
+                "validation_mode": ";".join(_term_hits(text, validation_terms)),
                 "artifact_links": row.get("best_pdf_url", ""),
                 "key_findings": first_sentence(row.get("machine_reason", "")),
                 "threats_to_validity": "Not automatically found; manual review may be required.",
@@ -2545,8 +2810,8 @@ def stage_quality(ctx: PipelineContext) -> None:
     extraction_rows = read_csv(ctx.config.paths.run_root / "evidence_extraction.csv")
     quality_rows: list[dict[str, Any]] = []
     for row in extraction_rows:
-        q1, q1_conf = _quality_score_from_hits(len(str(row.get("system_model_summary", "")).split()))
-        q2, q2_conf = _quality_score_from_hits(len(str(row.get("disturbance_model_summary", "")).split()))
+        q1, q1_conf = _quality_score_from_hits(len(str(row.get("system_summary", "")).split()))
+        q2, q2_conf = _quality_score_from_hits(len(str(row.get("method_summary", "")).split()))
         q3, q3_conf = _quality_score_from_hits(len(str(row.get("validation_mode", "")).split(";")))
         q4, q4_conf = _quality_score_from_hits(len(str(row.get("metrics_reported", "")).split(";")))
         q5, q5_conf = _quality_score_from_hits(1 if row.get("artifact_links") else 0)
@@ -2555,10 +2820,10 @@ def stage_quality(ctx: PipelineContext) -> None:
                 "record_id": row["record_id"],
                 "Q1_auto": q1,
                 "Q1_confidence": f"{q1_conf:.2f}",
-                "Q1_evidence": row.get("system_model_summary", ""),
+                "Q1_evidence": row.get("system_summary", ""),
                 "Q2_auto": q2,
                 "Q2_confidence": f"{q2_conf:.2f}",
-                "Q2_evidence": row.get("disturbance_model_summary", ""),
+                "Q2_evidence": row.get("method_summary", ""),
                 "Q3_auto": q3,
                 "Q3_confidence": f"{q3_conf:.2f}",
                 "Q3_evidence": row.get("validation_mode", ""),
@@ -2649,9 +2914,16 @@ async def stage_gray(ctx: PipelineContext) -> None:
                 title = _extract_html_title(body) or url
                 published_date = _extract_meta_date(body)
                 lowered = body.lower()
+                gray_signal_terms = unique_preserve_order(
+                    [
+                        *_topic_extraction_hints(ctx, "system_terms", ["system", "service", "platform"]),
+                        *_topic_extraction_hints(ctx, "disturbance_terms", ["fault", "failure", "outage"]),
+                        *_topic_extraction_hints(ctx, "method_terms", ["analysis", "simulation", "experiment"]),
+                    ]
+                )
                 technical_specificity = sum(
                     1
-                    for token in ("fault injection", "reliability", "availability", "chaos", "kubernetes", "failover")
+                    for token in gray_signal_terms
                     if token in lowered
                 )
                 provenance_score = 2 if urlparse(final_url).netloc in family.get("domains", []) else 1
@@ -2997,8 +3269,8 @@ def _counts_for_manuscript(ctx: PipelineContext) -> dict[str, Any]:
     extraction_rows = read_csv(ctx.config.paths.run_root / "evidence_extraction.csv")
     gray_rows = read_csv(ctx.config.paths.run_root / "gray_candidates.csv")
 
-    paradigm_counts = Counter(
-        (row.get("label_primary_value") or row.get("resilience_paradigm", ""))
+    primary_label_counts = Counter(
+        row.get("label_primary_value", "")
         for row in metadata_rows
         if row.get("track") == "scholarly_core"
     )
@@ -3017,7 +3289,7 @@ def _counts_for_manuscript(ctx: PipelineContext) -> dict[str, Any]:
         "preprint_watchlist_count": sum(1 for row in metadata_rows if row.get("track") == "preprint_watchlist"),
         "gray_included_count": sum(1 for row in gray_rows if row.get("auto_include_recommendation") == "include"),
         "quality_rows": len(quality_rows),
-        "counts_by_paradigm": dict(sorted(paradigm_counts.items())),
+        "counts_by_primary_label": dict(sorted(primary_label_counts.items())),
         "counts_by_metric": dict(sorted(metric_counts.items())),
         "counts_by_validation_type": dict(sorted(validation_counts.items())),
     }
@@ -3058,7 +3330,7 @@ def _write_method_reports(ctx: PipelineContext) -> None:
         "# Threats To Validity\n\n"
         "- OpenAlex indexing and metadata completeness can affect retrieval.\n"
         "- Machine screening and extraction use deterministic heuristics and still require targeted human adjudication for borderline items.\n"
-        "- Gray-literature automation is domain-scoped and may miss relevant official pages that are absent from configured seeds.\n",
+        "- Gray-literature automation is topic-bundle scoped and may miss relevant official pages that are absent from configured seeds.\n",
     )
 
 

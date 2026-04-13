@@ -6,73 +6,9 @@ from typing import Any, Mapping, Sequence
 from models import reconstruct_abstract
 
 
-TERM_GROUPS: dict[str, list[str]] = {
-    "construct": ["resilien*", "dependab*", "fault toleran*", "self-heal*"],
-    "context": [
-        "cloud computing",
-        "cloud infrastructure",
-        "cloud environment",
-        "cloud system",
-        "cloud service",
-        "cloud platform",
-        "cloud-based software service",
-        "cloud-based software services",
-        "cloud-native",
-        "openstack",
-        "eucalyptus",
-        "iaas",
-        "it service",
-        "it services",
-        "microservice*",
-        "kubernetes",
-        "k8s",
-        "serverless",
-        "multi-cloud",
-        "hybrid cloud",
-        "data center",
-        "container orchestration",
-        "containerized service",
-        "cloud-fog",
-        "cloud-edge",
-    ],
-    "model_paradigm": [
-        "modeling",
-        "modelling",
-        "model-based",
-        "simulation",
-        "simulator",
-        "digital twin",
-        "resilience assessment",
-        "profiling",
-        "testing framework",
-        "fault injection",
-        "fault diagnosis",
-        "failure prediction",
-        "proactive actions",
-        "chaos engineering",
-        "formal verification",
-        "model checking",
-        "machine learning",
-        "deep learning",
-        "reinforcement learning",
-        "AIOps",
-    ],
-}
+TERM_GROUPS: dict[str, list[str]] = {}
 
-NEGATIVE_EXCLUSION_TERMS: list[str] = [
-    "cloud model",
-    "container transportation",
-    "container terminal",
-    "port-hinterland",
-    "urban flood",
-    "stormwater",
-    "vehicle-road-cloud",
-    "blockchain",
-    "wind turbine",
-    "internet of medical things",
-    "healthcare things",
-    "logistics",
-]
+NEGATIVE_EXCLUSION_TERMS: list[str] = []
 
 WILDCARD_EXPANSIONS: dict[str, list[str]] = {
     "resilien*": ["resilience", "resilient", "resiliency"],
@@ -82,18 +18,7 @@ WILDCARD_EXPANSIONS: dict[str, list[str]] = {
     "microservice*": ["microservice", "microservices", "micro-service", "micro-services"],
 }
 
-CANONICAL_SEARCH_STRING = (
-    '(resilien* OR dependab* OR "fault toleran*" OR "self-heal*") AND '
-    '("cloud computing" OR "cloud infrastructure" OR "cloud environment" OR '
-    '"cloud system" OR "cloud service" OR "cloud platform" OR "cloud-native" OR '
-    'microservice* OR kubernetes OR k8s OR serverless OR "multi-cloud" OR '
-    '"hybrid cloud" OR "data center" OR "container orchestration" OR '
-    '"containerized service" OR "cloud-fog" OR "cloud-edge") AND '
-    '(modeling OR modelling OR "model-based" OR simulation OR "digital twin" OR '
-    '"fault injection" OR "chaos engineering" OR "formal verification" OR '
-    '"model checking" OR "machine learning" OR "deep learning" OR '
-    '"reinforcement learning" OR AIOps)'
-)
+CANONICAL_SEARCH_STRING = ""
 
 
 def screening_term_groups(topic_profile: Mapping[str, Any] | None = None) -> dict[str, list[str]]:
@@ -200,6 +125,8 @@ def evaluate_protocol(
         return False, "negative_domain_exclusion"
 
     compiled = compiled_groups if compiled_groups is not None else compile_group_regex()
+    if not compiled:
+        return False, "no_term_groups_configured"
     for group_patterns in compiled.values():
         if not any(pattern.search(normalized_text) for pattern in group_patterns):
             return False, "failed_protocol_match"
@@ -265,8 +192,7 @@ def _quote_term(term: str) -> str:
 
 def build_openalex_query_from_expanded(expanded_groups: Mapping[str, Sequence[str]]) -> str:
     group_queries: list[str] = []
-    for group_name in ("construct", "context", "model_paradigm"):
-        terms = expanded_groups.get(group_name, [])
+    for group_name, terms in expanded_groups.items():
         if not terms:
             continue
         group_queries.append(f"({' OR '.join(_quote_term(term) for term in terms)})")
@@ -288,8 +214,8 @@ def format_search_strings_report(
     lines.append(canonical_search_string)
     lines.append("")
     lines.append("EXPANDED_TERMS_FOR_OPENALEX")
-    for group_name in ("construct", "context", "model_paradigm"):
-        terms = ", ".join(expanded_groups.get(group_name, []))
+    for group_name, values in expanded_groups.items():
+        terms = ", ".join(values)
         lines.append(f"{group_name}: {terms}")
     lines.append("")
     lines.append("NEGATIVE_DOMAIN_EXCLUSIONS")

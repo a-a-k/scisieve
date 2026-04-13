@@ -1,24 +1,42 @@
 import unittest
 
-from models import CloudContext, ResilienceParadigm, infer_cloud_context, infer_resilience_paradigm, infer_topic_labels
+from models import infer_topic_labels, term_in_text
 
 
 class ModelInferenceTests(unittest.TestCase):
-    def test_general_cloud_requires_explicit_anchor(self) -> None:
-        text = "We evaluate resilience in cloud computing services deployed in a data center."
-        self.assertEqual(infer_cloud_context(text), CloudContext.GENERAL_CLOUD)
+    def test_term_in_text_matches_space_and_hyphen_variants(self) -> None:
+        self.assertTrue(term_in_text("fault injection", "Controlled fault-injection experiments were run."))
 
-    def test_non_computing_cloud_language_returns_unknown(self) -> None:
-        text = "Urban flood resilience assessment method based on cloud model and game theory."
-        self.assertEqual(infer_cloud_context(text), CloudContext.UNKNOWN)
+    def test_dimension_label_requires_explicit_signal(self) -> None:
+        labels = infer_topic_labels(
+            "We present formal analysis for a cluster platform service.",
+            dimensions=[
+                {
+                    "name": "approach_family",
+                    "default": "Unknown",
+                    "labels": [
+                        {"value": "Formal", "any_of": ["formal analysis", "model checking"]},
+                        {"value": "Experimental", "any_of": ["fault injection"]},
+                    ],
+                }
+            ],
+        )
+        self.assertEqual(labels["approach_family"], "Formal")
 
-    def test_formal_signal_maps_to_formal(self) -> None:
-        text = "This study applies formal verification and model checking to cloud services."
-        self.assertEqual(infer_resilience_paradigm(text), ResilienceParadigm.FORMAL)
-
-    def test_generic_text_without_method_signal_returns_unknown(self) -> None:
-        text = "This paper discusses resilience in distributed service operations."
-        self.assertEqual(infer_resilience_paradigm(text), ResilienceParadigm.UNKNOWN)
+    def test_missing_signal_returns_unknown(self) -> None:
+        labels = infer_topic_labels(
+            "This paper discusses reliability challenges in service operations.",
+            dimensions=[
+                {
+                    "name": "approach_family",
+                    "default": "Unknown",
+                    "labels": [
+                        {"value": "Formal", "any_of": ["formal analysis", "model checking"]},
+                    ],
+                }
+            ],
+        )
+        self.assertEqual(labels["approach_family"], "Unknown")
 
     def test_generic_topic_label_inference_uses_supplied_dimensions(self) -> None:
         labels = infer_topic_labels(

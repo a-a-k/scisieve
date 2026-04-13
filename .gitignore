@@ -22,3 +22,9 @@ SciCrawl_public/
 SciCrawl_public_stage/
 SciSieve_public/
 SciSieve_public_stage/
+
+# Private topic bundles / local override configs
+.scisieve_private/
+private_topics/
+private_reference/
+scisieve.private.yaml

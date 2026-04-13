@@ -1,0 +1,20 @@
+topic: example_topic
+description: >
+  Generic example query packs showing the expected bundle structure. Replace
+  these queries with a project-specific pack set in a private topic bundle.
+packs:
+  - id: pack_foundation_formal
+    query: "(reliability OR continuity) AND (distributed service OR service platform) AND (formal analysis OR model checking)"
+    streams:
+      - scholarly
+  - id: pack_resilience_experiments
+    query: "(robustness OR reliability) AND (orchestrated deployment OR cluster platform) AND (fault injection OR controlled experiment)"
+    streams:
+      - scholarly
+  - id: pack_review_discovery
+    query: "(reliability OR robustness) AND (distributed service OR service platform) AND (survey OR literature review)"
+    streams:
+      - scholarly
+negative_exclusions:
+  - agriculture
+  - logistics

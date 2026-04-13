@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "scisieve"
 version = "1.1.0"
-description = "Configurable pipeline for automated SLR/MLR construction with topic presets."
+description = "Configurable pipeline for automated SLR/MLR construction with external topic bundles."
 requires-python = ">=3.11"
 license = {file = "LICENSE"}
 dependencies = [

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import os
 from pathlib import Path
 
 import yaml
@@ -26,9 +27,9 @@ class ProjectConfig(BaseModel):
 
 class PathsConfig(BaseModel):
     working_dir: str = ".scisieve_runs"
-    query_packs: str = "topics/cloud_resilience_dependability/query_packs.yaml"
-    gray_registry: str = "topics/cloud_resilience_dependability/gray_registry.yaml"
-    topic_profile: str = "topics/cloud_resilience_dependability/topic_profile.yaml"
+    query_packs: str = "examples/example_topic/query_packs.yaml"
+    gray_registry: str = "examples/example_topic/gray_registry.yaml"
+    topic_profile: str = "examples/example_topic/topic_profile.yaml"
     anchor_benchmark: str
     baseline_metadata: str | None = None
 
@@ -129,7 +130,8 @@ class ResolvedConfig:
 def _resolve_path(base_dir: Path, raw_value: str | None) -> Path | None:
     if not raw_value:
         return None
-    path = Path(raw_value)
+    expanded = os.path.expandvars(os.path.expanduser(raw_value))
+    path = Path(expanded)
     if path.is_absolute():
         return path
     return (base_dir / path).resolve()
@@ -171,11 +173,11 @@ def load_resolved_config(
         tables_dir=run_root / "release_package" / "tables",
         figures_dir=run_root / "release_package" / "figures",
         query_packs_path=_resolve_path(repo_root, app.paths.query_packs)
-        or repo_root / "topics" / "cloud_resilience_dependability" / "query_packs.yaml",
+        or repo_root / "examples" / "example_topic" / "query_packs.yaml",
         gray_registry_path=_resolve_path(repo_root, app.paths.gray_registry)
-        or repo_root / "topics" / "cloud_resilience_dependability" / "gray_registry.yaml",
+        or repo_root / "examples" / "example_topic" / "gray_registry.yaml",
         topic_profile_path=_resolve_path(repo_root, app.paths.topic_profile)
-        or repo_root / "topics" / "cloud_resilience_dependability" / "topic_profile.yaml",
+        or repo_root / "examples" / "example_topic" / "topic_profile.yaml",
         anchor_benchmark_path=_resolve_path(repo_root, app.paths.anchor_benchmark) or repo_root / "anchors.csv",
         baseline_metadata_path=_resolve_path(repo_root, app.paths.baseline_metadata),
     )

@@ -1,0 +1,45 @@
+version: 1
+topic: private_topic
+description: >
+  Local override example for a private topic bundle. Copy this file to
+  scisieve.private.yaml, point the paths into .scisieve_private/, and keep the
+  real bundle out of git.
+contact_email: review@example.org
+project:
+  release_title: SciSieve Replication Package
+  citation_authors:
+    - name: SciSieve Team
+      orcid: ""
+  license_spdx: MIT
+paths:
+  working_dir: .scisieve_runs
+  query_packs: .scisieve_private/topics/private_topic/query_packs.yaml
+  gray_registry: .scisieve_private/topics/private_topic/gray_registry.yaml
+  topic_profile: .scisieve_private/topics/private_topic/topic_profile.yaml
+  anchor_benchmark: .scisieve_private/reference/anchor_benchmark.csv
+  baseline_metadata: .scisieve_private/reference/baseline_metadata.csv
+profiles:
+  debug:
+    non_production: true
+    input_mode: frozen_api_export
+    snapshot_id: openalex_live_debug_freeze
+    scholarly:
+      start_date: "2010-01-01"
+      end_date: ""
+      per_page: 200
+      max_records_per_pack: 40
+      max_preprints_per_pack: 20
+      resolve_preprints: true
+      resolve_preprints_threshold: 0.92
+  production:
+    non_production: false
+    input_mode: frozen_api_export
+    snapshot_id: openalex_live_freeze
+    scholarly:
+      start_date: "2010-01-01"
+      end_date: ""
+      per_page: 200
+      max_records_per_pack:
+      max_preprints_per_pack:
+      resolve_preprints: true
+      resolve_preprints_threshold: 0.92

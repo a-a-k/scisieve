@@ -31,40 +31,42 @@ class OfflineSmokeTests(unittest.TestCase):
                     "polarity": "positive",
                     "tier": "A",
                     "expected_stage": "include",
-                    "anchor_title": "Availability modeling for cloud-native microservices",
+                    "anchor_title": "Formal analysis of orchestrated service reliability",
                     "doi": "10.1000/smoke",
-                    "query_pack_hint": "pack_formal_methods",
+                    "query_pack_hint": "pack_foundation_formal",
                 }
             ]
 
             raw_entry = {
-                "query_pack_id": "pack_formal_methods",
+                "query_pack_id": "pack_foundation_formal",
                 "stream": "scholarly",
                 "source_name": "OpenAlex",
                 "retrieved_at_utc": ctx.config.run_timestamp_utc,
                 "snapshot_id": ctx.config.profile.snapshot_id,
                 "filter_expression": "type:article",
-                "search_query": "availability modeling",
+                "search_query": "formal analysis reliability",
                 "page_cursor": "*",
                 "page_index": 1,
                 "retrieval_order": 1,
                 "work": {
                     "id": "https://openalex.org/WSMOKE1",
                     "doi": "10.1000/smoke",
-                    "title": "Availability modeling for cloud-native microservices",
+                    "title": "Formal analysis of orchestrated service reliability",
                     "abstract_inverted_index": {
                         "We": [0],
                         "present": [1],
-                        "probabilistic": [2],
-                        "model": [3],
-                        "checking": [4],
-                        "for": [5],
-                        "resilience": [6],
-                        "and": [7],
-                        "availability": [8],
+                        "formal": [2],
+                        "analysis": [3],
+                        "and": [4],
+                        "model": [5],
+                        "checking": [6],
+                        "for": [7],
+                        "reliability": [8],
                         "in": [9],
-                        "kubernetes": [10],
-                        "services": [11],
+                        "an": [10],
+                        "orchestrated": [11],
+                        "deployment": [12],
+                        "platform": [13],
                     },
                     "publication_year": 2024,
                     "publication_date": "2024-05-01",
@@ -84,11 +86,11 @@ class OfflineSmokeTests(unittest.TestCase):
                     },
                 },
             }
-            raw_path = ctx.config.paths.raw_scholarly_dir / "pack-formal-methods__scholarly.jsonl"
+            raw_path = ctx.config.paths.raw_scholarly_dir / "pack-foundation-formal__scholarly.jsonl"
             raw_path.parent.mkdir(parents=True, exist_ok=True)
             raw_path.write_text(json.dumps(raw_entry, ensure_ascii=False) + "\n", encoding="utf-8")
             (ctx.config.paths.run_root / "search_strings.txt").write_text(
-                "QUERY_PACKS\n[pack_formal_methods]\navailability modeling\n",
+                "QUERY_PACKS\n[pack_foundation_formal]\nformal analysis reliability\n",
                 encoding="utf-8",
             )
 
@@ -108,7 +110,7 @@ class OfflineSmokeTests(unittest.TestCase):
             metadata_rows = read_csv(ctx.config.paths.run_root / "metadata.csv")
             self.assertEqual(len(metadata_rows), 1)
             self.assertEqual(metadata_rows[0]["track"], "scholarly_core")
-            self.assertEqual(metadata_rows[0]["label_primary_dimension"], "resilience_paradigm")
+            self.assertEqual(metadata_rows[0]["label_primary_dimension"], "approach_family")
             self.assertEqual(metadata_rows[0]["label_primary_value"], "Formal")
 
             coverage_rows = read_csv(ctx.config.paths.run_root / "coverage_anchor_results.csv")

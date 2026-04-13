@@ -1,0 +1,95 @@
+topic_id: example_topic
+display_name: Example Topic Bundle
+description: >
+  Generic example bundle that demonstrates how to configure screening,
+  classification, and extraction without embedding a real project-specific
+  literature-review domain in the public repository.
+screening:
+  term_groups:
+    phenomenon:
+      - reliability
+      - robustness
+      - continuity
+    context:
+      - distributed service
+      - service platform
+      - orchestrated deployment
+      - cluster platform
+    method:
+      - simulation
+      - formal analysis
+      - fault injection
+      - learning model
+  negative_exclusions:
+    - agriculture
+    - logistics
+    - flood model
+classifier:
+  tertiary_patterns:
+    - survey
+    - literature review
+    - mapping study
+  out_of_scope_patterns:
+    - classroom
+    - retail
+taxonomy:
+  dimensions:
+    - name: approach_family
+      default: Unknown
+      labels:
+        - value: Formal
+          any_of:
+            - formal analysis
+            - model checking
+        - value: Experimental
+          any_of:
+            - fault injection
+            - controlled experiment
+        - value: Simulation
+          any_of:
+            - simulation
+            - simulator
+        - value: Learning
+          any_of:
+            - machine learning
+            - learning model
+    - name: deployment_scope
+      default: Unknown
+      labels:
+        - value: OrchestratedPlatform
+          any_of:
+            - orchestrated deployment
+            - cluster platform
+        - value: EdgeDeployment
+          any_of:
+            - edge deployment
+        - value: MultiSite
+          any_of:
+            - multi-site
+            - multi region
+metadata:
+  primary_dimension: approach_family
+  secondary_dimension: deployment_scope
+extraction_hints:
+  system_terms:
+    - architecture
+    - service platform
+    - cluster platform
+  disturbance_terms:
+    - fault
+    - outage
+    - disruption
+  method_terms:
+    - simulation
+    - formal analysis
+    - fault injection
+    - learning model
+  workload_terms:
+    - workload
+    - traffic
+    - trace
+  validation_terms:
+    - simulation
+    - experiment
+    - benchmark
+    - case study

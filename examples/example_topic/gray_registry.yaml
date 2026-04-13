@@ -1,0 +1,13 @@
+topic: example_topic
+families:
+  - family_id: vendor_docs
+    domain: example.com
+    include:
+      - reliability
+      - platform
+      - outage
+  - family_id: engineering_blog
+    domain: engineering.example.org
+    include:
+      - distributed service
+      - benchmark

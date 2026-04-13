@@ -1,14 +1,14 @@
 # SciSieve
 [![Tests](https://github.com/a-a-k/scisieve/actions/workflows/tests.yml/badge.svg)](https://github.com/a-a-k/scisieve/actions/workflows/tests.yml)
 
-Configurable pipeline for automated SLR/MLR construction. The core engine is topic-driven; the repository currently ships with a bundled cloud resilience/dependability preset. The preferred interface is the package CLI `scisieve`; `python main.py ...` remains as a legacy compatibility runner for the original preset.
+Configurable pipeline for automated SLR/MLR construction. The public repository ships only a generic example bundle; real topic-specific bundles are expected to live outside git and be wired in through config paths.
 
 ## Install
 ```bash
 python -m pip install -r requirements.txt
 ```
 
-Optional editable install for the `scisieve` command:
+Optional editable install for the CLI:
 ```bash
 python -m pip install -e .
 ```
@@ -36,21 +36,48 @@ python -m scisieve audit --config scisieve.yaml --profile debug
 python -m scisieve release --config scisieve.yaml --profile debug
 ```
 
-## Config Files
-- `scisieve.yaml`: profile settings (`debug`, `production`) and working directories.
-- `topics/cloud_resilience_dependability/topic_profile.yaml`: bundled topic preset that defines screening terms, classifier cues, taxonomy labels, and extraction hints.
-- `topics/cloud_resilience_dependability/query_packs.yaml`: scholarly pack definitions for the bundled preset.
-- `topics/cloud_resilience_dependability/gray_registry.yaml`: domain-scoped gray-literature families and seed URLs for the bundled preset.
-- Legacy compatibility note: the old profile name `csur` is still accepted as an alias for `production`.
+`python main.py ...` is kept as a thin compatibility entry point for the same CLI. If no subcommand is provided, it defaults to `run`.
 
-## Generic Topic Configuration
-- The execution core is now topic-configurable. Screening terms, negative exclusions, heuristic classifier cues, and label taxonomies are loaded from `paths.topic_profile` in `scisieve.yaml`.
-- A new topic can be introduced by supplying a different topic profile plus matching query packs, gray registry, and benchmark/reference files. The engine stages themselves do not need to be rewritten for that change.
-- Metadata exports now include generic label fields: `label_primary_dimension`, `label_primary_value`, `label_secondary_dimension`, and `label_secondary_value`.
-- The legacy columns `resilience_paradigm` and `cloud_context` are still emitted for backward compatibility with the bundled cloud preset.
+## Public Repo Model
+- `scisieve.yaml` points to `examples/example_topic/`, which is intentionally synthetic and generic.
+- No real topic bundle, benchmark set, or domain-specific gray registry is bundled in tracked files.
+- Topic bundles can be supplied from local ignored paths such as `.scisieve_private/` or from env-expanded absolute paths.
+- `load_resolved_config()` expands `~`, `$VAR`, `${VAR}`, and Windows `%VAR%` in bundle paths.
+
+## Private Topic Bundles
+Use one of these patterns:
+
+1. Keep a local override config outside git:
+```bash
+copy scisieve.private.yaml.example scisieve.private.yaml
+python -m scisieve run --config scisieve.private.yaml --profile debug
+```
+
+2. Point the public config at env-expanded private paths:
+```yaml
+paths:
+  query_packs: ${SCISIEVE_PRIVATE_ROOT}/query_packs.yaml
+  gray_registry: ${SCISIEVE_PRIVATE_ROOT}/gray_registry.yaml
+  topic_profile: ${SCISIEVE_PRIVATE_ROOT}/topic_profile.yaml
+  anchor_benchmark: ${SCISIEVE_PRIVATE_ROOT}/anchor_benchmark.csv
+  baseline_metadata: ${SCISIEVE_PRIVATE_ROOT}/baseline_metadata.csv
+```
+
+Recommended ignored locations:
+- `.scisieve_private/`
+- `private_topics/`
+- `private_reference/`
+
+## Config Files
+- `scisieve.yaml`: default generic config with `debug` and `production` profiles.
+- `examples/example_topic/topic_profile.yaml`: example screening terms, classifier cues, taxonomy labels, and extraction hints.
+- `examples/example_topic/query_packs.yaml`: example scholarly query packs.
+- `examples/example_topic/gray_registry.yaml`: example gray-literature families and seeds.
+- `examples/example_topic/anchor_benchmark.csv`: synthetic anchor benchmark for tests and smoke runs.
+- `examples/example_topic/baseline_metadata.csv`: generic metadata schema header for reference.
 
 ## Output Model
-The config-driven pipeline writes working artifacts under `.scisieve_runs/<profile>/`.
+The pipeline writes working artifacts under `.scisieve_runs/<profile>/`.
 
 Key outputs:
 - `run_manifest.json`
@@ -72,32 +99,22 @@ Key outputs:
 - `release_package/`
 
 ## Behavior Guarantees
-- Precision-first screening still uses `title + abstract`; OpenAlex `concepts` are not used for inclusion logic.
+- Screening uses `title + abstract`; OpenAlex `concepts` are not used for inclusion logic.
 - `scholarly_core` contains only archival `article` / `proceedings-article` items.
-- Unresolved preprints stay in `preprint_watchlist` and are logged separately.
-- Query packs are executed independently, pack-level filters are respected during freeze, and provenance is retained on normalized and retained records.
-- Citation expansion uses both OpenAlex and OpenCitations, with separate round logs under `snowball_*.csv`.
-- Coverage validation runs against the post-snowball discovered set, not only the initial query-pack retrieval.
-- Negative sentinel checks are emitted as explicit reports and must stay at `0` for `scholarly_core`.
-
-## License
-This repository is released under the MIT License. See [LICENSE](LICENSE).
+- Unresolved preprints stay in `preprint_watchlist`.
+- Query packs are executed independently and retained records preserve query-pack provenance.
+- Citation expansion uses OpenAlex and OpenCitations with separate round logs.
+- Coverage validation runs against the post-snowball discovered set.
+- Negative sentinel checks are emitted as explicit reports and should remain at `0` for `scholarly_core`.
 
 ## Budget-Aware Resume
-- If OpenAlex returns `429 Insufficient budget`, the run now pauses cleanly instead of losing progress.
-- `freeze scholarly` checkpoints page-level progress in `freeze_progress.json` and resumes from the saved cursor on the next run.
-- `run` writes `resume_state.json`; rerunning the same command with the same `--run-root` continues from the paused stage on the next day.
-- Typical resume flow:
-```bash
-python -m scisieve run --config scisieve.yaml --profile debug --run-root .scisieve_runs\debug_resume
-# if budget is exhausted, rerun the same command after the next UTC reset
-python -m scisieve run --config scisieve.yaml --profile debug --run-root .scisieve_runs\debug_resume
-```
+- If OpenAlex returns `429 Insufficient budget`, the run pauses cleanly instead of losing progress.
+- `freeze scholarly` checkpoints page-level progress in `freeze_progress.json` and resumes from the saved cursor.
+- `run` writes `resume_state.json`; rerunning the same command with the same `--run-root` continues from the paused stage after the next budget reset.
 
-## Legacy Runner
-The original baseline script still works:
+Example:
 ```bash
-python main.py --email your.email@example.org --output-dir output --max-formal-records 50 --max-watchlist-records 50 --resolve-preprints
+python -m scisieve run --config scisieve.yaml --profile debug --run-root .scisieve_runs\debug_resume
 ```
 
 ## Tests
@@ -105,3 +122,5 @@ python main.py --email your.email@example.org --output-dir output --max-formal-r
 python -m unittest discover -s tests -v
 ```
 
+## License
+This repository is released under the MIT License. See [LICENSE](LICENSE).

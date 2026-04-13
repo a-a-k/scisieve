@@ -1,0 +1,3 @@
+anchor_id,polarity,tier,stratum,anchor_title,doi,year,rationale,expected_stage,current_run_present,current_run_track,current_run_archival_status,current_run_publication_year,current_run_title,openalex_id,query_pack_hint
+EX01,positive,A,example/foundation,Formal analysis of reliability in distributed service platforms,10.1000/example-foundation,2024,Example positive anchor for repository smoke and template documentation.,include,False,,,,,,pack_foundation_formal
+EXN01,negative,N,example/out-of-scope,Distributed service logistics scheduling benchmark,10.1000/example-negative,2023,Example negative anchor showing how out-of-scope material is tracked.,exclude,False,,,,,,pack_review_discovery

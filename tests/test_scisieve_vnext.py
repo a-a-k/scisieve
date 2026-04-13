@@ -58,6 +58,53 @@ class VNextConfigTests(unittest.TestCase):
             self.assertTrue(resolved.resolved_end_date)
             self.assertTrue(resolved.paths.topic_profile_path.exists())
 
+    def test_load_resolved_config_expands_env_var_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            topic_dir = Path(tmp) / "private_bundle"
+            topic_dir.mkdir(parents=True, exist_ok=True)
+            for name in (
+                "query_packs.yaml",
+                "gray_registry.yaml",
+                "topic_profile.yaml",
+                "anchor_benchmark.csv",
+                "baseline_metadata.csv",
+            ):
+                (topic_dir / name).write_text(
+                    (REPO_ROOT / "examples" / "example_topic" / name).read_text(encoding="utf-8"),
+                    encoding="utf-8",
+                )
+            config_path = Path(tmp) / "scisieve.yaml"
+            config_text = (REPO_ROOT / "scisieve.yaml").read_text(encoding="utf-8")
+            config_text = config_text.replace(
+                "examples/example_topic/query_packs.yaml",
+                "${SCISIEVE_PRIVATE_ROOT}/query_packs.yaml",
+            )
+            config_text = config_text.replace(
+                "examples/example_topic/gray_registry.yaml",
+                "${SCISIEVE_PRIVATE_ROOT}/gray_registry.yaml",
+            )
+            config_text = config_text.replace(
+                "examples/example_topic/topic_profile.yaml",
+                "${SCISIEVE_PRIVATE_ROOT}/topic_profile.yaml",
+            )
+            config_text = config_text.replace(
+                "examples/example_topic/anchor_benchmark.csv",
+                "${SCISIEVE_PRIVATE_ROOT}/anchor_benchmark.csv",
+            )
+            config_text = config_text.replace(
+                "examples/example_topic/baseline_metadata.csv",
+                "${SCISIEVE_PRIVATE_ROOT}/baseline_metadata.csv",
+            )
+            config_path.write_text(config_text, encoding="utf-8")
+            with patch.dict("os.environ", {"SCISIEVE_PRIVATE_ROOT": str(topic_dir.resolve())}):
+                resolved = load_resolved_config(
+                    config_path=str(config_path),
+                    profile_name="debug",
+                    run_root_override=tmp,
+                )
+            self.assertEqual(resolved.paths.query_packs_path, (topic_dir / "query_packs.yaml").resolve())
+            self.assertEqual(resolved.paths.topic_profile_path, (topic_dir / "topic_profile.yaml").resolve())
+
     def test_build_scholarly_filter_respects_pack_filters(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             resolved = load_resolved_config(
@@ -133,8 +180,8 @@ class VNextClassifierTests(unittest.TestCase):
             )
             ctx = create_context(resolved)
             row = {
-                "title": "Availability modeling for cloud-native microservices",
-                "abstract_text_reconstructed": "We present probabilistic model checking for resilience and availability in kubernetes services.",
+                "title": "Formal analysis of orchestrated service reliability",
+                "abstract_text_reconstructed": "We present formal analysis and model checking for reliability in cluster platform services.",
                 "doi": "10.1000/test",
                 "type": "article",
             }
@@ -150,8 +197,8 @@ class VNextClassifierTests(unittest.TestCase):
             )
             ctx = create_context(resolved)
             row = {
-                "title": "A Survey of AIOps Methods for Failure Management",
-                "abstract_text_reconstructed": "This survey reviews cloud failure management and reliability methods.",
+                "title": "A Survey of Reliability Assessment Methods",
+                "abstract_text_reconstructed": "This survey reviews distributed service reliability evaluation methods.",
                 "doi": "10.1000/survey",
                 "type": "article",
             }
@@ -167,15 +214,15 @@ class VNextClassifierTests(unittest.TestCase):
             )
             ctx = create_context(resolved)
             row = {
-                "title": "Chaos Engineering",
-                "abstract_text_reconstructed": "An engineering perspective on controlled experiments in large-scale systems.",
-                "doi": "10.1109/MS.2016.60",
+                "title": "Reliability Assessment: A Literature Review",
+                "abstract_text_reconstructed": "A literature review of reliability assessment methods in large-scale service systems.",
+                "doi": "10.1000/review",
                 "type": "article",
             }
             result = _topic_classifier(ctx, row)
             self.assertEqual(result["machine_decision"], "tertiary_background")
 
-    def test_topic_classifier_includes_openstack_availability_modeling(self) -> None:
+    def test_topic_classifier_includes_simulation_based_platform_analysis(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             resolved = load_resolved_config(
                 config_path=str(REPO_ROOT / "scisieve.yaml"),
@@ -184,9 +231,9 @@ class VNextClassifierTests(unittest.TestCase):
             )
             ctx = create_context(resolved)
             row = {
-                "title": "Availability modeling in OpenStack private clouds",
-                "abstract_text_reconstructed": "We use a simulator for resilience assessment of IaaS failover behavior.",
-                "doi": "10.1000/openstack",
+                "title": "Simulation-based reliability analysis for orchestrated service platforms",
+                "abstract_text_reconstructed": "We use a simulator for continuity assessment of orchestrated deployment failover behavior.",
+                "doi": "10.1000/platform-sim",
                 "type": "article",
             }
             result = _topic_classifier(ctx, row)
@@ -208,13 +255,13 @@ class VNextStageTests(unittest.TestCase):
                 {
                     "openalex_id": "https://openalex.org/W1",
                     "doi": "10.1000/include",
-                    "title": "Availability modeling for cloud-native microservices",
-                    "abstract_text_reconstructed": "We present probabilistic model checking for resilience and availability in kubernetes services.",
+                    "title": "Formal analysis of orchestrated service reliability",
+                    "abstract_text_reconstructed": "We present formal analysis and model checking for reliability in cluster platform services.",
                     "publication_year": 2024,
                     "publication_date": "2024-05-01",
                     "type": "article",
-                    "query_pack_ids": "pack_formal_methods",
-                    "query_terms_triggered": "availability;model checking;kubernetes",
+                    "query_pack_ids": "pack_foundation_formal",
+                    "query_terms_triggered": "formal analysis;model checking;cluster platform",
                     "primary_source_name": "Test Venue",
                     "retrieval_score_norm": "0.9",
                     "raw_work": {},
@@ -222,13 +269,13 @@ class VNextStageTests(unittest.TestCase):
                 {
                     "openalex_id": "https://openalex.org/W2",
                     "doi": "10.1000/tertiary",
-                    "title": "A Survey of AIOps Methods for Failure Management",
-                    "abstract_text_reconstructed": "This survey reviews cloud failure management and reliability methods.",
+                    "title": "A Survey of Reliability Assessment Methods",
+                    "abstract_text_reconstructed": "This survey reviews distributed service reliability evaluation methods.",
                     "publication_year": 2021,
                     "publication_date": "2021-01-01",
                     "type": "article",
                     "query_pack_ids": "pack_review_discovery",
-                    "query_terms_triggered": "survey;cloud;reliability",
+                    "query_terms_triggered": "survey;distributed service;reliability",
                     "primary_source_name": "Review Venue",
                     "retrieval_score_norm": "0.8",
                     "raw_work": {},
@@ -236,13 +283,13 @@ class VNextStageTests(unittest.TestCase):
                 {
                     "openalex_id": "https://openalex.org/W3",
                     "doi": "10.1000/preprint",
-                    "title": "Fault injection for serverless resilience",
-                    "abstract_text_reconstructed": "We use fault injection to estimate recovery behavior in serverless cloud services.",
+                    "title": "Fault injection for orchestrated deployment continuity",
+                    "abstract_text_reconstructed": "We use fault injection to estimate recovery behavior in an orchestrated deployment platform.",
                     "publication_year": 2025,
                     "publication_date": "2025-02-01",
                     "type": "preprint",
-                    "query_pack_ids": "pack_chaos_fault_injection",
-                    "query_terms_triggered": "fault injection;serverless;recovery",
+                    "query_pack_ids": "pack_resilience_experiments",
+                    "query_terms_triggered": "fault injection;orchestrated deployment;recovery",
                     "primary_source_name": "",
                     "retrieval_score_norm": "0.7",
                     "raw_work": {},
@@ -271,8 +318,11 @@ class VNextStageTests(unittest.TestCase):
                         "matched_archival_id": "",
                         "matched_archival_doi": "",
                         "resolved_from_preprint": False,
-                        "resilience_paradigm": "Formal",
-                        "cloud_context": "K8s",
+                        "label_primary_dimension": "approach_family",
+                        "label_primary_value": "Formal",
+                        "label_secondary_dimension": "deployment_scope",
+                        "label_secondary_value": "OrchestratedPlatform",
+                        "topic_labels_json": "{\"approach_family\":\"Formal\",\"deployment_scope\":\"OrchestratedPlatform\"}",
                         "cited_by_count": 10,
                         "best_pdf_url": "",
                         "abstract": normalized_rows[0]["abstract_text_reconstructed"],
@@ -294,8 +344,11 @@ class VNextStageTests(unittest.TestCase):
                         "matched_archival_id": "",
                         "matched_archival_doi": "",
                         "resolved_from_preprint": False,
-                        "resilience_paradigm": "ML",
-                        "cloud_context": "GeneralCloud",
+                        "label_primary_dimension": "approach_family",
+                        "label_primary_value": "Learning",
+                        "label_secondary_dimension": "deployment_scope",
+                        "label_secondary_value": "Unknown",
+                        "topic_labels_json": "{\"approach_family\":\"Learning\",\"deployment_scope\":\"Unknown\"}",
                         "cited_by_count": 15,
                         "best_pdf_url": "",
                         "abstract": normalized_rows[1]["abstract_text_reconstructed"],
@@ -319,8 +372,11 @@ class VNextStageTests(unittest.TestCase):
                         "matched_archival_id": "",
                         "matched_archival_doi": "",
                         "resolved_from_preprint": False,
-                        "resilience_paradigm": "Chaos",
-                        "cloud_context": "Serverless",
+                        "label_primary_dimension": "approach_family",
+                        "label_primary_value": "Experimental",
+                        "label_secondary_dimension": "deployment_scope",
+                        "label_secondary_value": "OrchestratedPlatform",
+                        "topic_labels_json": "{\"approach_family\":\"Experimental\",\"deployment_scope\":\"OrchestratedPlatform\"}",
                         "cited_by_count": 5,
                         "best_pdf_url": "",
                         "abstract": normalized_rows[2]["abstract_text_reconstructed"],
@@ -356,38 +412,50 @@ class VNextStageTests(unittest.TestCase):
 
     def test_profile_guard_rejects_capped_production_profile(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            topic_dir = Path(tmp) / "topics" / "cloud_resilience_dependability"
+            topic_dir = Path(tmp) / "examples" / "example_topic"
             topic_dir.mkdir(parents=True, exist_ok=True)
             (topic_dir / "query_packs.yaml").write_text(
-                (REPO_ROOT / "topics" / "cloud_resilience_dependability" / "query_packs.yaml").read_text(encoding="utf-8"),
+                (REPO_ROOT / "examples" / "example_topic" / "query_packs.yaml").read_text(encoding="utf-8"),
                 encoding="utf-8",
             )
             (topic_dir / "gray_registry.yaml").write_text(
-                (REPO_ROOT / "topics" / "cloud_resilience_dependability" / "gray_registry.yaml").read_text(encoding="utf-8"),
+                (REPO_ROOT / "examples" / "example_topic" / "gray_registry.yaml").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            (topic_dir / "topic_profile.yaml").write_text(
+                (REPO_ROOT / "examples" / "example_topic" / "topic_profile.yaml").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            (topic_dir / "anchor_benchmark.csv").write_text(
+                (REPO_ROOT / "examples" / "example_topic" / "anchor_benchmark.csv").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            (topic_dir / "baseline_metadata.csv").write_text(
+                (REPO_ROOT / "examples" / "example_topic" / "baseline_metadata.csv").read_text(encoding="utf-8"),
                 encoding="utf-8",
             )
             config_path = Path(tmp) / "scisieve.yaml"
             config_text = (REPO_ROOT / "scisieve.yaml").read_text(encoding="utf-8")
             config_text = config_text.replace("max_records_per_pack:\n", "max_records_per_pack: 10\n", 1)
             config_text = config_text.replace(
-                "topics/cloud_resilience_dependability/query_packs.yaml",
+                "examples/example_topic/query_packs.yaml",
                 str((topic_dir / "query_packs.yaml").resolve()).replace("\\", "/"),
             )
             config_text = config_text.replace(
-                "topics/cloud_resilience_dependability/gray_registry.yaml",
+                "examples/example_topic/gray_registry.yaml",
                 str((topic_dir / "gray_registry.yaml").resolve()).replace("\\", "/"),
             )
             config_text = config_text.replace(
-                "reference/scisieve_anchor_benchmark_v1.csv",
-                str((REPO_ROOT / "reference" / "scisieve_anchor_benchmark_v1.csv").resolve()).replace("\\", "/"),
+                "examples/example_topic/anchor_benchmark.csv",
+                str((topic_dir / "anchor_benchmark.csv").resolve()).replace("\\", "/"),
             )
             config_text = config_text.replace(
-                "reference/baseline_metadata.csv",
-                str((REPO_ROOT / "reference" / "baseline_metadata.csv").resolve()).replace("\\", "/"),
+                "examples/example_topic/baseline_metadata.csv",
+                str((topic_dir / "baseline_metadata.csv").resolve()).replace("\\", "/"),
             )
             config_text = config_text.replace(
-                "topics/cloud_resilience_dependability/topic_profile.yaml",
-                str((REPO_ROOT / "topics" / "cloud_resilience_dependability" / "topic_profile.yaml").resolve()).replace("\\", "/"),
+                "examples/example_topic/topic_profile.yaml",
+                str((topic_dir / "topic_profile.yaml").resolve()).replace("\\", "/"),
             )
             config_path.write_text(config_text, encoding="utf-8")
             resolved = load_resolved_config(
@@ -413,8 +481,8 @@ class VNextStageTests(unittest.TestCase):
                     "polarity": "positive",
                     "tier": "A",
                     "expected_stage": "include",
-                    "anchor_title": "Mutiny! How Does Kubernetes Fail, and What Can We Do About It?",
-                    "doi": "10.1109/DSN58291.2024.00016",
+                    "anchor_title": "Failure benchmarks for orchestrated service control layers",
+                    "doi": "10.1000/failure-benchmark",
                 }
             ]
             (ctx.config.paths.normalized_dir / "normalized_candidates.jsonl").write_text("", encoding="utf-8")
@@ -424,16 +492,16 @@ class VNextStageTests(unittest.TestCase):
             )
             record_id = _record_id_for_work(
                 "https://openalex.org/W999",
-                "10.1109/DSN58291.2024.00016",
-                "Mutiny! How Does Kubernetes Fail, and What Can We Do About It?",
+                "10.1000/failure-benchmark",
+                "Failure benchmarks for orchestrated service control layers",
             )
             screening_row = {
                 "record_id": record_id,
                 "openalex_id": "https://openalex.org/W999",
-                "doi": "10.1109/DSN58291.2024.00016",
-                "title": "Mutiny! How Does Kubernetes Fail, and What Can We Do About It?",
+                "doi": "10.1000/failure-benchmark",
+                "title": "Failure benchmarks for orchestrated service control layers",
                 "year": "2024",
-                "query_pack_ids": "pack_kubernetes_failure_modes",
+                "query_pack_ids": "pack_resilience_experiments",
                 "anchor_match_ids": "A_TEST",
                 "negative_sentinel_match": "",
                 "machine_decision": "needs_fulltext",
@@ -462,7 +530,7 @@ class VNextStageTests(unittest.TestCase):
                 writer.writerow(screening_row)
             asyncio.run(stage_anchor_check(ctx))
             coverage = (ctx.config.paths.run_root / "coverage_anchor_results.csv").read_text(encoding="utf-8")
-            self.assertIn("A_TEST,positive,A,include,True,True,pack_kubernetes_failure_modes,screen_ft_excluded", coverage)
+            self.assertIn("A_TEST,positive,A,include,True,True,pack_resilience_experiments,screen_ft_excluded", coverage)
             self.assertIn("needs_fulltext_queue", coverage)
 
     def test_run_pipeline_resumes_from_paused_stage(self) -> None:

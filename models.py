@@ -1,29 +1,9 @@
 from __future__ import annotations
 
 import re
-from enum import Enum
 from typing import Any, Mapping, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field
-
-
-class ResilienceParadigm(str, Enum):
-    UNKNOWN = "Unknown"
-    ANALYTICS = "Analytics"
-    SIMULATION = "Simulation"
-    CHAOS = "Chaos"
-    ML = "ML"
-    FORMAL = "Formal"
-
-
-class CloudContext(str, Enum):
-    UNKNOWN = "Unknown"
-    K8S = "K8s"
-    EDGE = "Edge"
-    SERVERLESS = "Serverless"
-    MULTI_CLOUD = "MultiCloud"
-    HYBRID_CLOUD = "HybridCloud"
-    GENERAL_CLOUD = "GeneralCloud"
 
 
 class ResearchWork(BaseModel):
@@ -49,8 +29,7 @@ class ResearchWork(BaseModel):
     label_primary_value: str | None = None
     label_secondary_dimension: str | None = None
     label_secondary_value: str | None = None
-    resilience_paradigm: ResilienceParadigm
-    cloud_context: CloudContext
+    topic_labels_json: str | None = None
     cited_by_count: int | None = None
     best_pdf_url: str | None = None
     abstract: str | None = None
@@ -96,62 +75,6 @@ def term_in_text(term: str, text: str) -> bool:
     return re.search(pattern, normalized_text) is not None
 
 
-DEFAULT_TAXONOMY_DIMENSIONS: list[dict[str, Any]] = [
-    {
-        "name": "resilience_paradigm",
-        "default": ResilienceParadigm.UNKNOWN.value,
-        "labels": [
-            {"value": ResilienceParadigm.FORMAL.value, "any_of": ["formal verification", "model checking", "theorem proving"]},
-            {"value": ResilienceParadigm.CHAOS.value, "any_of": ["chaos engineering", "fault injection", "chaos experiment"]},
-            {
-                "value": ResilienceParadigm.ML.value,
-                "any_of": ["machine learning", "deep learning", "aiops", "reinforcement learning"],
-            },
-            {"value": ResilienceParadigm.SIMULATION.value, "any_of": ["simulation", "simulator", "digital twin"]},
-            {
-                "value": ResilienceParadigm.ANALYTICS.value,
-                "any_of": [
-                    "modeling",
-                    "modelling",
-                    "model-based",
-                    "analytical model",
-                    "stochastic model",
-                    "reliability model",
-                    "dependability model",
-                ],
-            },
-        ],
-    },
-    {
-        "name": "cloud_context",
-        "default": CloudContext.UNKNOWN.value,
-        "labels": [
-            {"value": CloudContext.K8S.value, "any_of": ["kubernetes", "k8s"]},
-            {"value": CloudContext.EDGE.value, "any_of": ["edge computing", "edge cloud", "cloud-edge", "fog computing", "cloud-fog"]},
-            {"value": CloudContext.SERVERLESS.value, "any_of": ["serverless", "faas"]},
-            {"value": CloudContext.MULTI_CLOUD.value, "any_of": ["multi-cloud", "multicloud"]},
-            {"value": CloudContext.HYBRID_CLOUD.value, "any_of": ["hybrid cloud"]},
-            {
-                "value": CloudContext.GENERAL_CLOUD.value,
-                "any_of": [
-                    "cloud computing",
-                    "cloud infrastructure",
-                    "cloud environment",
-                    "cloud system",
-                    "cloud service",
-                    "cloud platform",
-                    "data center",
-                    "virtualized cloud",
-                    "iaas",
-                    "paas",
-                    "saas",
-                ],
-            },
-        ],
-    },
-]
-
-
 def infer_dimension_label(text: str, dimension: Mapping[str, Any]) -> str:
     lowered = _normalize_classifier_text(text)
     default = str(dimension.get("default") or "Unknown")
@@ -180,9 +103,8 @@ def infer_dimension_label(text: str, dimension: Mapping[str, Any]) -> str:
 
 
 def infer_topic_labels(text: str, dimensions: Sequence[Mapping[str, Any]] | None = None) -> dict[str, str]:
-    active_dimensions = dimensions if dimensions is not None else DEFAULT_TAXONOMY_DIMENSIONS
     labels: dict[str, str] = {}
-    for dimension in active_dimensions:
+    for dimension in dimensions or []:
         if not isinstance(dimension, dict):
             continue
         name = str(dimension.get("name") or "").strip()
@@ -190,13 +112,3 @@ def infer_topic_labels(text: str, dimensions: Sequence[Mapping[str, Any]] | None
             continue
         labels[name] = infer_dimension_label(text, dimension)
     return labels
-
-
-def infer_resilience_paradigm(text: str) -> ResilienceParadigm:
-    value = infer_topic_labels(text).get("resilience_paradigm", ResilienceParadigm.UNKNOWN.value)
-    return ResilienceParadigm(value)
-
-
-def infer_cloud_context(text: str) -> CloudContext:
-    value = infer_topic_labels(text).get("cloud_context", CloudContext.UNKNOWN.value)
-    return CloudContext(value)
